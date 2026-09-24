@@ -32,6 +32,9 @@ jobs:
       - name: Create test database
         run: bun run db:push
 
+      - name: Validate game art atlases
+        run: bun run art:check
+
       - name: Type-check web app
         run: bunx tsc --noEmit
 
