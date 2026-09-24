@@ -10,6 +10,7 @@ import { Coins, FlaskConical, X } from 'lucide-react'
 import { net } from './net'
 import { audio } from './audio'
 import { GameEngine, type HudState } from './engine'
+import { loadGameArt, type GameArt } from './assets'
 import { InputController } from './input'
 import type { ChatEntry } from './ui/Chat'
 import { nextChatKey } from './ui/Chat'
@@ -46,6 +47,7 @@ export default function GameClient() {
   const [missionDone, setMissionDone] = useState<{ name: string; gold: number; xp: number } | null>(null)
   const [zoneBanner, setZoneBanner] = useState<{ name: string; safe: boolean; key: number } | null>(null)
   const [isTouch, setIsTouch] = useState(false)
+  const [art, setArt] = useState<GameArt | null>(null)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const engineRef = useRef<GameEngine | null>(null)
@@ -55,6 +57,8 @@ export default function GameClient() {
   const [engineVersion, setEngineVersion] = useState(0)
 
   useEffect(() => {
+    void loadGameArt().then(setArt)
+
     const forcedTouch = new URLSearchParams(window.location.search).get('touch') === '1'
     const touch = forcedTouch || window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0
     setIsTouch(touch)
@@ -100,7 +104,7 @@ export default function GameClient() {
   }, [phase])
 
   useEffect(() => {
-    if (phase !== 'playing') return
+    if (phase !== 'playing' || !art) return
     const canvas = canvasRef.current
     const welcome = welcomeRef.current
     if (!canvas || !welcome) return
@@ -109,7 +113,7 @@ export default function GameClient() {
     input.attach(canvas)
     inputRef.current = input
 
-    const engine = new GameEngine(canvas, welcome, input)
+    const engine = new GameEngine(canvas, welcome, input, art)
     engineRef.current = engine
     ;(window as any).__engine = engine
     engine.setOnline(online)
@@ -163,7 +167,7 @@ export default function GameClient() {
       clearInterval(hudTimer); ro.disconnect(); engine.stop(); input.detach(); engineRef.current = null
       for (const e of ['snapshot','fx','dmg','pJoin','pLeave','lvl','chat','sys','kill','mission','shop','dead','revived']) net.off(e)
     }
-  }, [phase, engineVersion])
+  }, [phase, engineVersion, art])
 
   useEffect(() => {
     if (!missionDone) return
