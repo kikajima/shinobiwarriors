@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import sharp from 'sharp'
 
@@ -38,3 +39,12 @@ for (const cell of used) {
 }
 
 console.log(`[art] OK ${used.length} referências de terreno apontam apenas para células catalogadas`)
+
+
+const fireBytes = readFileSync('public/game/gba/player-fire.png')
+const fireSha256 = createHash('sha256').update(fireBytes).digest('hex')
+const expectedFireSha256 = 'f72037bbe79bc21ce835709096b355c381ff39f39b9cd61d27746eb131c55885'
+if (fireSha256 !== expectedFireSha256) {
+  throw new Error(`player-fire.png hash inválido: ${fireSha256}`)
+}
+console.log('[art] OK player-fire.png hash')
