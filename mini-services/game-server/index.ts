@@ -1,0 +1,94 @@
+// ============================================================
+// Shinobi Online — servidor de jogo (porta 3003)
+// ATENÇÃO: o path '/' é usado pelo Caddy para rotear via
+// XTransformPort — NÃO mudar.
+// ============================================================
+
+import { createServer } from 'http'
+import { Server } from 'socket.io'
+import { Game } from './src/game'
+
+const httpServer = createServer()
+
+const io = new Server(httpServer, {
+  // DO NOT change the path, it is used by Caddy to forward the request to the correct port
+  path: '/',
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000,
+})
+
+const game = new Game(io)
+
+io.on('connection', (socket) => {
+  socket.emit('meta', { online: game.onlineCount() })
+
+  socket.on('join', (data: { name?: string; element?: string }) => {
+    const res = game.addHuman(socket, String(data?.name || ''), (data?.element || 'fogo') as any)
+    if (!res.ok) socket.emit('joinError', { error: res.error })
+  })
+
+  socket.on('move', (d: { x: number; y: number; dir: number }) => {
+    if (typeof d?.x === 'number' && typeof d?.y === 'number') game.handleMove(socket, d)
+  })
+
+  socket.on('attack', (d: { tx?: number; ty?: number }) => {
+    const ent = game.entOf(socket)
+    if (!ent) return
+    game.basicAttack(ent, typeof d?.tx === 'number' ? d.tx : ent.x, typeof d?.ty === 'number' ? d.ty : ent.y + 1)
+  })
+
+  socket.on('skill', (d: { index?: number; tx?: number; ty?: number }) => {
+    const ent = game.entOf(socket)
+    if (!ent) return
+    const idx = Math.max(0, Math.min(3, Math.floor(Number(d?.index) || 0)))
+    game.castSkill(ent, idx, typeof d?.tx === 'number' ? d.tx : ent.x, typeof d?.ty === 'number' ? d.ty : ent.y + 1)
+  })
+
+  socket.on('potion', () => {
+    const ent = game.entOf(socket)
+    if (ent) game.usePotion(ent)
+  })
+
+  socket.on('chat', (d: { text?: string }) => game.handleChat(socket, d as any))
+
+  socket.on('interact', () => game.handleInteract(socket))
+
+  socket.on('buyPotion', () => game.handleBuyPotion(socket))
+
+  socket.on('respawn', () => {
+    const ent = game.entOf(socket)
+    if (ent) game.respawnPlayer(ent)
+  })
+
+  socket.on('disconnect', () => {
+    game.removeHuman(socket)
+  })
+})
+
+// loop de simulação: 20Hz
+setInterval(() => game.tick(), 50)
+
+// meta broadcast (contagem online para telas de login)
+setInterval(() => {
+  io.emit('meta', { online: game.onlineCount() })
+}, 15000)
+
+setInterval(() => {
+  console.log(`[status] online=${game.onlineCount()} monstros=${game.monsters.size}`)
+}, 60000)
+
+const PORT = 3003
+httpServer.listen(PORT, () => {
+  console.log(`[shinobi-online] servidor de jogo rodando na porta ${PORT}`)
+})
+
+process.on('SIGTERM', () => {
+  httpServer.close(() => process.exit(0))
+})
+process.on('SIGINT', () => {
+  httpServer.close(() => process.exit(0))
+})
