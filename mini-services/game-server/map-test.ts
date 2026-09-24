@@ -27,7 +27,7 @@ for (let y = 0; y < 64; y++) {
 
 // valida walkable nos anchors
 import { walkable } from './src/world'
-const probes = [
+const probes: Array<[string, number, number]> = [
   ['vila', 32.5, 35], ['campo', 50, 32], ['floresta', 32, 15], ['lago', 34, 46], ['vale', 15, 32],
 ]
 for (const [n, x, y] of probes) console.log(`walkable ${n}:`, walkable(world, x * 32, y * 32))
