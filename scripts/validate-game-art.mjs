@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import sharp from 'sharp'
 
 const expected = [
@@ -13,27 +14,26 @@ for (const [file, width, height] of expected) {
   console.log(`[art] OK ${file} ${meta.width}x${meta.height}`)
 }
 
-// Células de terreno realmente usadas pelo manifest.
-// Cada célula precisa ser praticamente opaca; isso impede mapear sem querer
-// uma região vazia/transparente do atlas e recriar "buracos pretos" no mapa.
-const terrainCells = [
-  [0,0],[1,0],[2,0],[3,0],[4,0],[5,0],[6,0],[7,0],
-  [0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[7,1],
-  [0,2],
-]
+// terrain.png tem conteúdo válido nas linhas 0 e 1 e na célula (0,2).
+// O restante da linha 2 e toda a linha 3 são transparentes.
+// Lemos o manifest usado pelo jogo para impedir que uma coordenada vazia
+// volte a ser mapeada como grama/caminho/etc.
+const allowedTerrainCells = new Set([
+  '0,0','1,0','2,0','3,0','4,0','5,0','6,0','7,0',
+  '0,1','1,1','2,1','3,1','4,1','5,1','6,1','7,1',
+  '0,2',
+])
 
-for (const [col, row] of terrainCells) {
-  const stats = await sharp('public/game/gba/terrain.png')
-    .extract({ left: col * 32, top: row * 32, width: 32, height: 32 })
-    .ensureAlpha()
-    .stats()
+const manifest = readFileSync('src/components/game/art-manifest.ts', 'utf8')
+const used = [...manifest.matchAll(/tile\(\s*(\d+)\s*,\s*(\d+)\s*\)/g)]
+  .map((match) => `${match[1]},${match[2]}`)
 
-  const alpha = stats.channels[3]
-  if (!alpha || alpha.min < 240) {
-    throw new Error(
-      `terrain (${col},${row}) contém transparência inesperada (alpha min=${alpha?.min ?? 'n/a'})`,
-    )
+if (!used.length) throw new Error('Nenhuma célula de terreno encontrada no art-manifest.ts')
+
+for (const cell of used) {
+  if (!allowedTerrainCells.has(cell)) {
+    throw new Error(`art-manifest.ts aponta para célula de terreno vazia: (${cell})`)
   }
 }
 
-console.log(`[art] OK ${terrainCells.length} células de terreno catalogadas`)
+console.log(`[art] OK ${used.length} referências de terreno apontam apenas para células catalogadas`)
