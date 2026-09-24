@@ -1,15 +1,15 @@
 'use client';
 export const PIX_SCALE = 2;
-function cv(w, h) { const c=document.createElement('canvas'); c.width=w*PIX_SCALE;c.height=h*PIX_SCALE;const ctx=c.getContext('2d');ctx.imageSmoothingEnabled=false;return[c,ctx]; }
+function cv(w, h): [HTMLCanvasElement, CanvasRenderingContext2D] { const c=document.createElement('canvas'); c.width=w*PIX_SCALE;c.height=h*PIX_SCALE;const ctx=c.getContext('2d')!!;ctx.imageSmoothingEnabled=false;return[c,ctx]; }
 const px=(ctx,x,y,w,h,col)=>{ctx.fillStyle=col;ctx.fillRect(x*PIX_SCALE,y*PIX_SCALE,w*PIX_SCALE,h*PIX_SCALE)};
 function rng(seed){let a=seed>>>0;return()=>{a=(a*1664525+1013904223)>>>0;return a/4294967296}}
-function cv2(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;const ctx=c.getContext('2d');ctx.imageSmoothingEnabled=false;return[c,ctx]}
+function cv2(w,h): [HTMLCanvasElement, CanvasRenderingContext2D] {const c=document.createElement('canvas');c.width=w;c.height=h;const ctx=c.getContext('2d')!!;ctx.imageSmoothingEnabled=false;return[c,ctx]}
 function mirror(c){const[m,mctx]=cv2(c.width,c.height);mctx.translate(c.width,0);mctx.scale(-1,1);mctx.imageSmoothingEnabled=false;mctx.drawImage(c,0,0);return m}
 const SKINS=['#f2c79a','#e0aa76','#b57e52'],HAIRS=['#1f1b18','#5a3a1e','#e8c84a','#c43c2c','#e8e8e8','#e89ab0','#7a7a8a','#2a4a6a'],PANTS=['#3a3540','#4a3a2a','#2e3a4a'],BAND='#2b3a55',PLATE='#c8ccd4';
 const SHIRTS={fogo:['#d9480f','#ffa94d'],agua:['#0b7285','#66d9e8'],raio:['#b08900','#ffe066'],vento:['#5c940d','#d8f5a2'],terra:['#8a6a52','#c8a08a']};
 function tileGrass(base,dark,light,seed){const[c,ctx]=cv(16,16);px(ctx,0,0,16,16,base);const r=rng(seed);for(let i=0;i<26;i++)px(ctx,Math.floor(r()*16),Math.floor(r()*16),1,1,r()<.55?dark:light);return c}
-function tileFlowers(seed){const c=tileGrass('#7fb95c','#6ba14c','#93c76d',seed),ctx=c.getContext('2d'),r=rng(seed+7),cols=['#ffffff','#e85d5d','#f0d060'];for(let i=0;i<3;i++){const x=2+Math.floor(r()*11),y=3+Math.floor(r()*9);px(ctx,x,y+1,1,2,'#4a7a34');px(ctx,x,y,1,1,cols[Math.floor(r()*3)]);px(ctx,x-1,y,1,1,cols[Math.floor(r()*3)]);px(ctx,x+1,y,1,1,cols[Math.floor(r()*3)])}return c}
-function tileTallGrass(seed){const c=tileGrass('#6fae4e','#5c9440','#84bc60',seed),ctx=c.getContext('2d'),r=rng(seed+13);for(let i=0;i<7;i++){const x=1+Math.floor(r()*14),h=3+Math.floor(r()*3);px(ctx,x,15-h,1,h,'#4e8a38');px(ctx,x,15-h,1,1,'#69a848')}return c}
+function tileFlowers(seed){const c=tileGrass('#7fb95c','#6ba14c','#93c76d',seed),ctx=c.getContext('2d')!,r=rng(seed+7),cols=['#ffffff','#e85d5d','#f0d060'];for(let i=0;i<3;i++){const x=2+Math.floor(r()*11),y=3+Math.floor(r()*9);px(ctx,x,y+1,1,2,'#4a7a34');px(ctx,x,y,1,1,cols[Math.floor(r()*3)]);px(ctx,x-1,y,1,1,cols[Math.floor(r()*3)]);px(ctx,x+1,y,1,1,cols[Math.floor(r()*3)])}return c}
+function tileTallGrass(seed){const c=tileGrass('#6fae4e','#5c9440','#84bc60',seed),ctx=c.getContext('2d')!,r=rng(seed+13);for(let i=0;i<7;i++){const x=1+Math.floor(r()*14),h=3+Math.floor(r()*3);px(ctx,x,15-h,1,h,'#4e8a38');px(ctx,x,15-h,1,1,'#69a848')}return c}
 function tileSand(seed){const[c,ctx]=cv(16,16);px(ctx,0,0,16,16,'#e3cf9a');const r=rng(seed);for(let i=0;i<18;i++)px(ctx,Math.floor(r()*16),Math.floor(r()*16),1,1,r()<.6?'#d2ba82':'#f0e0b0');return c}
 function tilePath(seed){const[c,ctx]=cv(16,16);px(ctx,0,0,16,16,'#c9a06a');const r=rng(seed);for(let i=0;i<22;i++)px(ctx,Math.floor(r()*16),Math.floor(r()*16),1,1,r()<.5?'#b8905a':'#d8b47e');for(let i=0;i<3;i++)px(ctx,2+Math.floor(r()*12),2+Math.floor(r()*12),2,1,'#a8825a');return c}
 function tilePlaza(seed){const[c,ctx]=cv(16,16);px(ctx,0,0,16,16,'#b5aea0');px(ctx,0,0,16,1,'#9a938a');px(ctx,0,0,1,16,'#9a938a');const r=rng(seed);for(let i=0;i<6;i++)px(ctx,Math.floor(r()*16),Math.floor(r()*16),1,1,'#a29b8e');px(ctx,8,8,1,1,'#8f897d');return c}
