@@ -1,7 +1,7 @@
 // ============================================================
 // Shinobi Online — servidor de jogo (porta 3003)
-// ATENÇÃO: o path '/' é usado pelo Caddy para rotear via
-// XTransformPort — NÃO mudar.
+// Socket.IO usa /socket.io/; o Caddy encaminha esse caminho
+// da porta pública 81 para este serviço.
 // ============================================================
 
 import { createServer } from 'http'
@@ -11,8 +11,7 @@ import { Game } from './src/game'
 const httpServer = createServer()
 
 const io = new Server(httpServer, {
-  // DO NOT change the path, it is used by Caddy to forward the request to the correct port
-  path: '/',
+  path: '/socket.io/',
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
