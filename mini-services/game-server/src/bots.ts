@@ -122,6 +122,7 @@ export class BotBrain {
   stuckPos = { x: 0, y: 0 }
   stuckCount = 0
   grindAnchor: { x: number; y: number } | null = null
+  returningToVillage = false
 
   constructor(game: Game, ent: PlayerEnt) {
     this.game = game
@@ -214,9 +215,15 @@ export class BotBrain {
     const ent = this.ent
     const wp = this.route[this.routeI]
     if (!wp) {
-      this.state = 'grind'
-      this.grindUntil = Date.now() + 240000 + rnd() * 300000
       this.targetId = null
+      if (this.returningToVillage) {
+        this.returningToVillage = false
+        this.state = 'rest'
+        this.restUntil = Date.now() + 5000 + rnd() * 9000
+      } else {
+        this.state = 'grind'
+        this.grindUntil = Date.now() + 240000 + rnd() * 300000
+      }
       return
     }
     this.stepToward(wp.x, wp.y, BOT_SPEED * dt)
@@ -275,7 +282,8 @@ export class BotBrain {
         this.wanderAt = now + 1500 + rnd() * 2500
         this.wanderAng = rnd() * Math.PI * 2
       }
-      const anchor = this.currentAnchor()
+      const anchorTile = this.currentAnchor()
+      const anchor = { x: (anchorTile.x + .5) * TILE, y: (anchorTile.y + .5) * TILE }
       const d = dist(ent, anchor)
       if (d > 140) {
         this.stepToward(anchor.x + (rnd() - 0.5) * 90, anchor.y + (rnd() - 0.5) * 90, BOT_SPEED * dt)
@@ -350,6 +358,7 @@ export class BotBrain {
     this.state = 'travel'
     this.routeI = 0
     this.targetId = null
+    this.returningToVillage = zone === 'vila'
 
     const target = zone === 'vila' ? ZONE_ANCHORS.vila : this.currentAnchor()
     const targetX = (target.x + .5) * TILE
