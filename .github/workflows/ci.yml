@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Configure local environment
+        run: cp .env.example .env
+
+      - name: Install web dependencies
+        run: bun install
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: Create test database
+        run: bun run db:push
+
+      - name: Type-check web app
+        run: bunx tsc --noEmit
+
+      - name: Build web app
+        run: bun run build
+
+      - name: Install game-server dependencies
+        working-directory: mini-services/game-server
+        run: bun install --frozen-lockfile
+
+      - name: Bundle game server
+        working-directory: mini-services/game-server
+        run: bun build index.ts --target bun --outfile /tmp/shinobi-game-server.js
+
+      - name: Validate generated world
+        working-directory: mini-services/game-server
+        run: bun map-test.ts
