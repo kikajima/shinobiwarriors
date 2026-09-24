@@ -6,6 +6,7 @@ import {
   OBJECT_ATLAS_URL,
   OBJECT_FRAMES,
   PLAYER_FIRE_ATLAS_URL,
+  PLAYER_FIRE_ACTIONS_URL,
   PLAYER_WATER_ATLAS_URL,
   PLAYER_LIGHTNING_ATLAS_URL,
   PLAYER_WIND_ATLAS_URL,
@@ -91,6 +92,18 @@ function shiftedFrame(source: HTMLCanvasElement, dx: number, dy: number): HTMLCa
   return canvas
 }
 
+function mirrorFrame(source: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = source.width
+  canvas.height = source.height
+  const ctx = canvas.getContext('2d')!
+  ctx.imageSmoothingEnabled = false
+  ctx.translate(canvas.width, 0)
+  ctx.scale(-1, 1)
+  ctx.drawImage(source, 0, 0)
+  return canvas
+}
+
 function fireAttackFrame(source: HTMLCanvasElement, dir: number, phase: number): HTMLCanvasElement {
   const dirs = [[0,1],[0,-1],[-1,0],[1,0]] as const
   const [dx,dy] = dirs[dir] || dirs[0]
@@ -166,10 +179,32 @@ function fireHurtFrame(source: HTMLCanvasElement, dir: number, phase: number): H
   return canvas
 }
 
-function buildFireCombatSet(move: HTMLCanvasElement[][]): PlayerSpriteSet {
-  const attack=move.map((direction,dir)=>[0,1,2].map((phase)=>fireAttackFrame(direction[phase===1?1:0],dir,phase)))
-  const cast=move.map((direction,dir)=>[0,1,2].map((phase)=>fireCastFrame(direction[0],dir,phase)))
-  const hurt=move.map((direction,dir)=>[0,1,2].map((phase)=>fireHurtFrame(direction[0],dir,phase)))
+function buildFireCombatSet(
+  move: HTMLCanvasElement[][],
+  attackPose?: HTMLCanvasElement | null,
+  hurtPose?: HTMLCanvasElement | null,
+): PlayerSpriteSet {
+  const attack = move.map((direction, dir) => {
+    if ((dir === 2 || dir === 3) && attackPose) {
+      const pose = dir === 2 ? mirrorFrame(attackPose) : attackPose
+      return [direction[0], pose, pose]
+    }
+    return [0,1,2].map((phase)=>fireAttackFrame(direction[phase===1?1:0],dir,phase))
+  })
+  const cast = move.map((direction, dir) => {
+    if ((dir === 2 || dir === 3) && attackPose) {
+      const pose = dir === 2 ? mirrorFrame(attackPose) : attackPose
+      return [direction[0], pose, pose]
+    }
+    return [0,1,2].map((phase)=>fireCastFrame(direction[0],dir,phase))
+  })
+  const hurt = move.map((direction, dir) => {
+    if ((dir === 2 || dir === 3) && hurtPose) {
+      const pose = dir === 2 ? mirrorFrame(hurtPose) : hurtPose
+      return [direction[0], pose, pose]
+    }
+    return [0,1,2].map((phase)=>fireHurtFrame(direction[0],dir,phase))
+  })
   return { move, attack, cast, hurt }
 }
 
@@ -264,6 +299,10 @@ async function loadAtlasArt(): Promise<GameArt> {
     loadImage(TERRAIN_ATLAS_URL),
     loadImage(OBJECT_ATLAS_URL),
   ])
+  const fireActionsAtlas = await loadImage(PLAYER_FIRE_ACTIONS_URL).catch((error) => {
+    console.warn('[art] ações reais do Fogo indisponíveis; usando animações derivadas.', error)
+    return null
+  })
   const playerAtlases = await Promise.all([
     loadOptionalPlayerAtlas('fogo', PLAYER_FIRE_ATLAS_URL),
     loadOptionalPlayerAtlas('agua', PLAYER_WATER_ATLAS_URL),
@@ -286,7 +325,17 @@ async function loadAtlasArt(): Promise<GameArt> {
   for (const [element, atlas] of playerAtlases) {
     if (!atlas) continue
     const move = cropMatrix(atlas, PLAYER_FRAMES)
-    players[element] = element === 'fogo' ? buildFireCombatSet(move) : { move }
+    if (element === 'fogo') {
+      const attackPose = fireActionsAtlas
+        ? cropFrame(fireActionsAtlas, { x: 0, y: 0, w: 48, h: 40 })
+        : null
+      const hurtPose = fireActionsAtlas
+        ? cropFrame(fireActionsAtlas, { x: 48, y: 0, w: 48, h: 40 })
+        : null
+      players.fogo = buildFireCombatSet(move, attackPose, hurtPose)
+    } else {
+      players[element] = { move }
+    }
   }
 
   return { tiles, objects, players, source: 'gba-atlas' }

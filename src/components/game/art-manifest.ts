@@ -7,7 +7,8 @@ export interface AtlasFrame {
 
 export const TERRAIN_ATLAS_URL = '/game/gba/terrain.png'
 export const OBJECT_ATLAS_URL = '/game/gba/objects.png'
-export const PLAYER_FIRE_ATLAS_URL = '/game/gba/player-fire.png?v=fire-combat-v2'
+export const PLAYER_FIRE_ATLAS_URL = '/game/gba/player-fire.png?v=fire-real-v1'
+export const PLAYER_FIRE_ACTIONS_URL = '/game/gba/player-fire-actions.png?v=fire-real-v1'
 export const PLAYER_WATER_ATLAS_URL = '/game/gba/player-water.png?v=players-v1'
 export const PLAYER_LIGHTNING_ATLAS_URL = '/game/gba/player-lightning.png?v=players-v1'
 export const PLAYER_WIND_ATLAS_URL = '/game/gba/player-wind.png?v=players-v1'
