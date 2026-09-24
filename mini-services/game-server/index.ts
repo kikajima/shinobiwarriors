@@ -22,6 +22,7 @@ const io = new Server(httpServer, {
 })
 
 const game = new Game(io)
+const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 
 io.on('connection', (socket) => {
   socket.emit('meta', { online: game.onlineCount() })
@@ -31,21 +32,35 @@ io.on('connection', (socket) => {
     if (!res.ok) socket.emit('joinError', { error: res.error })
   })
 
-  socket.on('move', (d: { x: number; y: number; dir: number }) => {
-    if (typeof d?.x === 'number' && typeof d?.y === 'number') game.handleMove(socket, d)
+  socket.on('move', (d: { x?: number; y?: number; dir?: number } | undefined) => {
+    if (!isFiniteNumber(d?.x) || !isFiniteNumber(d?.y)) return
+    game.handleMove(socket, {
+      x: d.x,
+      y: d.y,
+      dir: Number.isInteger(d.dir) ? Number(d.dir) : 0,
+    })
   })
 
-  socket.on('attack', (d: { tx?: number; ty?: number }) => {
+  socket.on('attack', (d: { tx?: number; ty?: number } | undefined) => {
     const ent = game.entOf(socket)
     if (!ent) return
-    game.basicAttack(ent, typeof d?.tx === 'number' ? d.tx : ent.x, typeof d?.ty === 'number' ? d.ty : ent.y + 1)
+    game.basicAttack(
+      ent,
+      isFiniteNumber(d?.tx) ? d.tx : ent.x,
+      isFiniteNumber(d?.ty) ? d.ty : ent.y + 1,
+    )
   })
 
-  socket.on('skill', (d: { index?: number; tx?: number; ty?: number }) => {
+  socket.on('skill', (d: { index?: number; tx?: number; ty?: number } | undefined) => {
     const ent = game.entOf(socket)
     if (!ent) return
     const idx = Math.max(0, Math.min(3, Math.floor(Number(d?.index) || 0)))
-    game.castSkill(ent, idx, typeof d?.tx === 'number' ? d.tx : ent.x, typeof d?.ty === 'number' ? d.ty : ent.y + 1)
+    game.castSkill(
+      ent,
+      idx,
+      isFiniteNumber(d?.tx) ? d.tx : ent.x,
+      isFiniteNumber(d?.ty) ? d.ty : ent.y + 1,
+    )
   })
 
   socket.on('potion', () => {
@@ -53,7 +68,7 @@ io.on('connection', (socket) => {
     if (ent) game.usePotion(ent)
   })
 
-  socket.on('chat', (d: { text?: string }) => game.handleChat(socket, d as any))
+  socket.on('chat', (d?: { text?: string }) => game.handleChat(socket, d))
 
   socket.on('interact', () => game.handleInteract(socket))
 
