@@ -1,7 +1,7 @@
 // Smoke test do servidor de jogo
 import { io } from 'socket.io-client'
 
-const socket = io('http://localhost:3003', { path: '/', transports: ['websocket'] })
+const socket = io('http://localhost:3003', { path: '/socket.io/', transports: ['websocket'] })
 
 let snapshots = 0
 let chats = 0
