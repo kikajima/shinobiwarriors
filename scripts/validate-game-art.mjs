@@ -4,6 +4,7 @@ import sharp from 'sharp'
 const expected = [
   ['public/game/gba/terrain.png', 256, 128],
   ['public/game/gba/objects.png', 512, 256],
+  ['public/game/gba/player-fire.png', 96, 160],
 ]
 
 for (const [file, width, height] of expected) {
