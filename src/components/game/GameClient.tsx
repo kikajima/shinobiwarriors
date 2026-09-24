@@ -24,6 +24,8 @@ import { Button } from '@/components/ui/button'
 import type { ElementId, RosterEnt, ShopMsg, WelcomeData } from './types'
 
 const SAVED_KEY = 'shinobi-online-save'
+const VALID_ELEMENTS = new Set<ElementId>(['fogo', 'agua', 'raio', 'vento', 'terra'])
+const MAX_CHAT_MESSAGES = 200
 
 export default function GameClient() {
   const [phase, setPhase] = useState<'login' | 'playing'>('login')
@@ -60,9 +62,13 @@ export default function GameClient() {
       const raw = localStorage.getItem(SAVED_KEY)
       if (raw) {
         const d = JSON.parse(raw)
-        setSaved({ name: d.name || null, element: d.element || null })
+        const name = typeof d?.name === 'string' ? d.name.trim().slice(0, 14) || null : null
+        const element = VALID_ELEMENTS.has(d?.element) ? d.element : null
+        setSaved({ name, element })
       }
-    } catch { /* ignora */ }
+    } catch {
+      localStorage.removeItem(SAVED_KEY)
+    }
 
     const socket = net.connect()
     const onConnect = () => setConnected(true)
@@ -134,9 +140,12 @@ export default function GameClient() {
     const onLvl = (d: { id: number; lv: number }) => setRoster((r) => r.map((p) => (p.id === d.id ? { ...p, lv: d.lv } : p)))
     net.on('pJoin', onPJoin); net.on('pLeave', onPLeave); net.on('lvl', onLvl)
 
-    const onChat = (d: any) => setChatMsgs((m) => [...m, { key: nextChatKey(), kind: 'chat', name: d.n, lv: d.lv, el: d.el, text: d.text }])
-    const onSys = (d: { t: string }) => setChatMsgs((m) => [...m, { key: nextChatKey(), kind: 'sys', text: d.t }])
-    const onKill = (d: any) => setChatMsgs((m) => [...m, { key: nextChatKey(), kind: 'kill', name: d.k, text: `${d.v} (Nv${d.mlv}) +${d.g} ryō` }])
+    const pushChat = (entry: ChatEntry) => {
+      setChatMsgs((messages) => [...messages.slice(-(MAX_CHAT_MESSAGES - 1)), entry])
+    }
+    const onChat = (d: any) => pushChat({ key: nextChatKey(), kind: 'chat', name: d.n, lv: d.lv, el: d.el, text: d.text })
+    const onSys = (d: { t: string }) => pushChat({ key: nextChatKey(), kind: 'sys', text: d.t })
+    const onKill = (d: any) => pushChat({ key: nextChatKey(), kind: 'kill', name: d.k, text: `${d.v} (Nv${d.mlv}) +${d.g} ryō` })
     const onMission = (d: any) => { if (d.done) { setMissionDone({ name: d.name, gold: d.gold, xp: d.xp }); audio.play('lvl') } }
     const onShop = (d: ShopMsg) => setShop(d.open ? d : null)
     const onDead = (d: { by: string }) => setDeathBy(d.by)
@@ -163,9 +172,12 @@ export default function GameClient() {
   }, [missionDone])
 
   const handlePlay = useCallback((name: string, element: ElementId) => {
-    audio.init(); credsRef.current = { name, element }
-    try { localStorage.setItem(SAVED_KEY, JSON.stringify({ name, element })) } catch { /* ignora */ }
-    setLoading(true); net.join(name, element)
+    const cleanName = name.trim().slice(0, 14)
+    if (cleanName.length < 2 || !VALID_ELEMENTS.has(element)) return
+
+    audio.init(); credsRef.current = { name: cleanName, element }
+    try { localStorage.setItem(SAVED_KEY, JSON.stringify({ name: cleanName, element })) } catch { /* ignora */ }
+    setLoading(true); net.join(cleanName, element)
   }, [])
 
   const dispatchAction = useCallback((a: GameAction) => {
