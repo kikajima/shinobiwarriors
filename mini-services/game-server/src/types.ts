@@ -64,6 +64,13 @@ export interface MonsterEnt {
   wanderMoving: boolean
   slamAt: number
   slamPending: { x: number; y: number; at: number } | null
+  // estados elementais aplicados por jutsus
+  burnUntil: number
+  burnNextAt: number
+  burnDamage: number
+  burnOwnerId: number | null
+  slowUntil: number
+  stunUntil: number
 }
 
 export interface ProjectileEnt {
