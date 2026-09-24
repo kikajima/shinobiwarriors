@@ -45,6 +45,8 @@ export class InputController {
     canvas.addEventListener('mousemove', this.onMouseMove)
     canvas.addEventListener('mousedown', this.onMouseDown)
     window.addEventListener('mouseup', this.onMouseUp)
+    window.addEventListener('blur', this.onWindowBlur)
+    document.addEventListener('visibilitychange', this.onVisibilityChange)
     canvas.addEventListener('contextmenu', this.onContextMenu)
   }
 
@@ -56,10 +58,20 @@ export class InputController {
     this.canvas?.removeEventListener('mousemove', this.onMouseMove)
     this.canvas?.removeEventListener('mousedown', this.onMouseDown)
     window.removeEventListener('mouseup', this.onMouseUp)
+    window.removeEventListener('blur', this.onWindowBlur)
+    document.removeEventListener('visibilitychange', this.onVisibilityChange)
     this.canvas?.removeEventListener('contextmenu', this.onContextMenu)
   }
 
   private onContextMenu = (e: Event) => e.preventDefault()
+
+  private onWindowBlur = () => {
+    this.clearKeys()
+  }
+
+  private onVisibilityChange = () => {
+    if (document.hidden) this.clearKeys()
+  }
 
   private onKeyDown = (e: KeyboardEvent) => {
     if (!this.enabled) return
