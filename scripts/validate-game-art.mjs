@@ -22,22 +22,17 @@ const terrainCells = [
   [0,2],
 ]
 
-const terrain = sharp('public/game/gba/terrain.png')
 for (const [col, row] of terrainCells) {
-  const { data, info } = await terrain
-    .clone()
+  const stats = await sharp('public/game/gba/terrain.png')
     .extract({ left: col * 32, top: row * 32, width: 32, height: 32 })
     .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
+    .stats()
 
-  let opaque = 0
-  for (let i = 3; i < data.length; i += info.channels) {
-    if (data[i] > 240) opaque++
-  }
-  const ratio = opaque / (32 * 32)
-  if (ratio < 0.96) {
-    throw new Error(`terrain (${col},${row}) tem apenas ${(ratio*100).toFixed(1)}% de cobertura alpha`)
+  const alpha = stats.channels[3]
+  if (!alpha || alpha.min < 240) {
+    throw new Error(
+      `terrain (${col},${row}) contém transparência inesperada (alpha min=${alpha?.min ?? 'n/a'})`,
+    )
   }
 }
 
