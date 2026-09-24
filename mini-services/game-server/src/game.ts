@@ -87,7 +87,7 @@ export class Game {
  spawnProjectile(ent,idx,nx,ny,speed,mult,pierce,radius,range){const id=this.nextId++;this.projectiles.set(id,{id,owner:ent.id,x:ent.x+nx*22,y:ent.y+ny*22-6,vx:nx*speed,vy:ny*speed,k:EL_LIST.indexOf(ent.el)*4+idx,dmg:atkOf(ent.lv)*mult,pierce,radius,ttl:range/speed,hitIds:new Set()})}
  hitMonster(m,attacker,base,mult,elemental=false){
    const now=Date.now();
-   const lightningBonus=elemental&&attacker.el==='raio'?.12:0;
+   const lightningBonus=(elemental&&attacker.el==='raio')?0.12:0;
    const crit=rnd()<CRIT_CHANCE+lightningBonus;
    let dmg=base*mult*(.9+rnd()*.2);
    if(crit)dmg*=CRIT_MULT;
