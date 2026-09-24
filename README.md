@@ -61,7 +61,7 @@ cd mini-services/game-server
 bun run dev
 ```
 
-O cliente usa `XTransformPort=3003` para chegar ao servidor Socket.IO. Para reproduzir o roteamento esperado pelo projeto, inicie o Caddy com o `Caddyfile` fornecido e acesse a aplicação pelo proxy configurado na porta `81`.
+O cliente usa o caminho padrão `/socket.io/`. O `Caddyfile` encaminha esse caminho para o game server em `127.0.0.1:3003` e todo o restante para o Next.js em `127.0.0.1:3000`. Inicie o Caddy e acesse a aplicação em `http://localhost:81`.
 
 ## Scripts úteis
 
