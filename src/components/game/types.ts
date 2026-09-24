@@ -70,6 +70,7 @@ export interface SnapshotData {
 
 export interface FxData {
   k: string
+  sid?: number
   el?: ElementId
   x: number
   y: number
@@ -80,6 +81,7 @@ export interface FxData {
 }
 
 export interface DmgData {
+  tid?: number
   x: number
   y: number
   v: number

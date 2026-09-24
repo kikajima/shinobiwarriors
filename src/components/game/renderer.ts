@@ -30,7 +30,27 @@ export function drawGame(e: GameEngine, now: number) {
   type Item={sortY:number;draw:()=>void}; const items:Item[]=[]
   for(const o of e.objRender){const ox=o.x*TILE,oy=o.y*TILE;if(ox<left-TILE*2||ox>right+TILE*2||oy<top-TILE*4||oy>bottom+TILE*4)continue;const img=e.objects[o.k];if(!img)continue;const w=img.width/PIX_SCALE,h=img.height/PIX_SCALE,fp=FOOTPRINTS[o.k]||[1,1],dx=o.x*TILE+(fp[0]*TILE-w)/2,dy=(o.y+fp[1])*TILE-h+4;items.push({sortY:o.sortY,draw:()=>{ctx.drawImage(img,dx,dy,w,h);if(o.k==='lantern'){ctx.save();ctx.globalCompositeOperation='lighter';const g=ctx.createRadialGradient(dx+w/2,dy+4,2,dx+w/2,dy+4,34);g.addColorStop(0,'rgba(255, 208, 106, 0.30)');g.addColorStop(1,'rgba(255, 208, 106, 0)');ctx.fillStyle=g;ctx.fillRect(dx+w/2-34,dy-30,68,68);ctx.restore()}}})}
   {const np=e.map.shopNpc;if(np.x>left-60&&np.x<right+60&&np.y>top-60&&np.y<bottom+60){const img=e.npc[0][0],w=img.width/PIX_SCALE,h=img.height/PIX_SCALE;items.push({sortY:np.y+12,draw:()=>ctx.drawImage(img,np.x-w/2,np.y+12-h,w,h)})}}
-  for(const ent of e.entities.values()){if(ent.id===e.selfId&&e.you?.dm)continue;if(ent.x<left-60||ent.x>right+60||ent.y<top-80||ent.y>bottom+60)continue;const frame=ent.moving?(Math.floor(ent.animT/.16)%2)+1:0,dir=Math.max(0,Math.min(3,ent.dir));let img:HTMLCanvasElement,scale=1;if(ent.kind==='player')img=e.charSprites(ent.el||'fogo',ent.pal)[dir][frame];else{const t=ent.t||'bandido';img=(e.monsters[t]||e.monsters.bandido)[dir][frame];scale=MONSTER_SCALE[t]||1}const w=img.width/PIX_SCALE*scale,h=img.height/PIX_SCALE*scale,dx=ent.x-w/2,dy=ent.y+12-h,flashing=ent.flashUntil>now;items.push({sortY:ent.y+12,draw:()=>{ctx.save();ctx.globalAlpha=.22;ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(ent.x,ent.y+10,w*.34,4.5,0,0,Math.PI*2);ctx.fill();ctx.restore();if(flashing)try{ctx.filter='brightness(2.6)'}catch{}ctx.drawImage(img,dx,dy,w,h);if(flashing)try{ctx.filter='none'}catch{}}})}
+  for(const ent of e.entities.values()){
+    if(ent.id===e.selfId&&e.you?.dm)continue;
+    if(ent.x<left-60||ent.x>right+60||ent.y<top-80||ent.y>bottom+60)continue;
+    const dir=Math.max(0,Math.min(3,ent.dir));
+    let img:HTMLCanvasElement,scale=1;
+    if(ent.kind==='player'){
+      img=e.playerFrame(ent,now);
+    }else{
+      const frame=ent.moving?(Math.floor(ent.animT/.16)%2)+1:0;
+      const t=ent.t||'bandido';
+      img=(e.monsters[t]||e.monsters.bandido)[dir][frame];
+      scale=MONSTER_SCALE[t]||1;
+    }
+    const w=img.width/PIX_SCALE*scale,h=img.height/PIX_SCALE*scale,dx=ent.x-w/2,dy=ent.y+12-h,flashing=ent.flashUntil>now;
+    items.push({sortY:ent.y+12,draw:()=>{
+      ctx.save();ctx.globalAlpha=.22;ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(ent.x,ent.y+10,w*.34,4.5,0,0,Math.PI*2);ctx.fill();ctx.restore();
+      if(flashing)try{ctx.filter='brightness(2.6)'}catch{}
+      ctx.drawImage(img,dx,dy,w,h);
+      if(flashing)try{ctx.filter='none'}catch{}
+    }})
+  }
   items.sort((a,b)=>a.sortY-b.sortY);for(const it of items)it.draw()
   for(const p of e.projectiles.values()){
     const el=EL_LIST[Math.floor(p.k/4)]||'fogo',cols=EL_COLORS[el],skillIdx=p.k%4;

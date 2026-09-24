@@ -7,7 +7,7 @@ export interface AtlasFrame {
 
 export const TERRAIN_ATLAS_URL = '/game/gba/terrain.png'
 export const OBJECT_ATLAS_URL = '/game/gba/objects.png'
-export const PLAYER_FIRE_ATLAS_URL = '/game/gba/player-fire.png?v=players-v1'
+export const PLAYER_FIRE_ATLAS_URL = '/game/gba/player-fire.png?v=fire-combat-v1'
 export const PLAYER_WATER_ATLAS_URL = '/game/gba/player-water.png?v=players-v1'
 export const PLAYER_LIGHTNING_ATLAS_URL = '/game/gba/player-lightning.png?v=players-v1'
 export const PLAYER_WIND_ATLAS_URL = '/game/gba/player-wind.png?v=players-v1'
@@ -85,17 +85,29 @@ export const OBJECT_FRAMES: Record<string, AtlasFrame> = {
 export const PLAYER_FRAME_W = 32
 export const PLAYER_FRAME_H = 40
 
+export type PlayerAnimName = 'move' | 'attack' | 'cast' | 'hurt'
+
+const playerGroup = (group: number): AtlasFrame[][] =>
+  Array.from({ length: 4 }, (_, dir) =>
+    Array.from({ length: 3 }, (_, frame) => ({
+      x: frame * PLAYER_FRAME_W,
+      y: (group * 4 + dir) * PLAYER_FRAME_H,
+      w: PLAYER_FRAME_W,
+      h: PLAYER_FRAME_H,
+    })),
+  )
+
 /**
- * Contrato compartilhado dos players GBA:
- * atlas 96x160, 4 direções x 3 frames.
- * linhas: baixo, cima, esquerda, direita
- * colunas: idle, passo A, passo B
+ * Contrato base dos players GBA.
+ * Os elementos comuns usam somente move (96x160).
+ * O piloto de Fogo usa 4 grupos empilhados (96x640):
+ * move, attack, cast e hurt.
  */
-export const PLAYER_FRAMES: AtlasFrame[][] = Array.from({ length: 4 }, (_, dir) =>
-  Array.from({ length: 3 }, (_, frame) => ({
-    x: frame * PLAYER_FRAME_W,
-    y: dir * PLAYER_FRAME_H,
-    w: PLAYER_FRAME_W,
-    h: PLAYER_FRAME_H,
-  })),
-)
+export const PLAYER_FRAMES = playerGroup(0)
+
+export const PLAYER_FIRE_ANIM_FRAMES: Record<PlayerAnimName, AtlasFrame[][]> = {
+  move: playerGroup(0),
+  attack: playerGroup(1),
+  cast: playerGroup(2),
+  hurt: playerGroup(3),
+}

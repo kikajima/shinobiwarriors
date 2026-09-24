@@ -11,17 +11,28 @@ import {
   PLAYER_WIND_ATLAS_URL,
   PLAYER_EARTH_ATLAS_URL,
   PLAYER_FRAMES,
+  PLAYER_FIRE_ANIM_FRAMES,
+  type PlayerAnimName,
   TERRAIN_ATLAS_URL,
   TERRAIN_FRAMES,
   type AtlasFrame,
 } from './art-manifest'
 
+export interface PlayerSpriteSet {
+  move: HTMLCanvasElement[][]
+  attack?: HTMLCanvasElement[][]
+  cast?: HTMLCanvasElement[][]
+  hurt?: HTMLCanvasElement[][]
+}
+
 export interface GameArt {
   tiles: Record<string, HTMLCanvasElement[]>
   objects: Record<string, HTMLCanvasElement>
-  players: Partial<Record<ElementId, HTMLCanvasElement[][]>>
+  players: Partial<Record<ElementId, PlayerSpriteSet>>
   source: 'gba-atlas' | 'procedural-fallback'
 }
+
+export type { PlayerAnimName } from './art-manifest'
 
 let cachedArt: Promise<GameArt> | null = null
 
@@ -52,6 +63,13 @@ function cropFrame(source: CanvasImageSource, frame: AtlasFrame): HTMLCanvasElem
     0, 0, canvas.width, canvas.height,
   )
   return canvas
+}
+
+function cropMatrix(
+  source: CanvasImageSource,
+  frames: AtlasFrame[][],
+): HTMLCanvasElement[][] {
+  return frames.map((direction) => direction.map((frame) => cropFrame(source, frame)))
 }
 
 const BASE_HAIR = [
@@ -163,12 +181,19 @@ async function loadAtlasArt(): Promise<GameArt> {
     objects[key] = cropFrame(objectAtlas, frame)
   }
 
-  const players: Partial<Record<ElementId, HTMLCanvasElement[][]>> = {}
+  const players: Partial<Record<ElementId, PlayerSpriteSet>> = {}
   for (const [element, atlas] of playerAtlases) {
     if (!atlas) continue
-    players[element] = PLAYER_FRAMES.map((direction) =>
-      direction.map((frame) => cropFrame(atlas, frame)),
-    )
+    if (element === 'fogo') {
+      players.fogo = {
+        move: cropMatrix(atlas, PLAYER_FIRE_ANIM_FRAMES.move),
+        attack: cropMatrix(atlas, PLAYER_FIRE_ANIM_FRAMES.attack),
+        cast: cropMatrix(atlas, PLAYER_FIRE_ANIM_FRAMES.cast),
+        hurt: cropMatrix(atlas, PLAYER_FIRE_ANIM_FRAMES.hurt),
+      }
+    } else {
+      players[element] = { move: cropMatrix(atlas, PLAYER_FRAMES) }
+    }
   }
 
   return { tiles, objects, players, source: 'gba-atlas' }
