@@ -7,13 +7,92 @@
 import type { Game } from './game'
 import type { MonsterEnt, PlayerEnt } from './types'
 import { BOT_SPEED, CHAT, SKILLS } from './data'
-import { GRIND_ANCHORS, ZONE_ANCHORS, walkable } from './world'
+import { GRIND_ANCHORS, ZONE_ANCHORS, tileWalkable, walkable, type World } from './world'
 
 const rnd = Math.random
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
 const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
 
 export const BOT_TARGET = 30
+
+const TILE = 32
+
+/** Caminho em grade usado pelos bots para atravessar portões e contornar obstáculos. */
+export function findBotPath(
+  world: World,
+  startX: number,
+  startY: number,
+  targetX: number,
+  targetY: number,
+): { x: number; y: number }[] {
+  const w = world.w, h = world.h
+  const clampX = (x: number) => Math.max(0, Math.min(w - 1, x))
+  const clampY = (y: number) => Math.max(0, Math.min(h - 1, y))
+  const sx = clampX(Math.floor(startX / TILE))
+  const sy = clampY(Math.floor(startY / TILE))
+  let gx = clampX(Math.floor(targetX / TILE))
+  let gy = clampY(Math.floor(targetY / TILE))
+
+  // Se a âncora cair num tile bloqueado, usa o caminhável mais próximo.
+  if (!tileWalkable(world, gx, gy)) {
+    let found = false
+    for (let r = 1; r <= 5 && !found; r++) {
+      for (let dy = -r; dy <= r && !found; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const tx = gx + dx, ty = gy + dy
+          if (tileWalkable(world, tx, ty)) {
+            gx = tx; gy = ty; found = true; break
+          }
+        }
+      }
+    }
+    if (!found) return []
+  }
+
+  const start = sy * w + sx, goal = gy * w + gx
+  const prev = new Int32Array(w * h)
+  prev.fill(-1)
+  const queue = new Int32Array(w * h)
+  let head = 0, tail = 0
+  queue[tail++] = start
+  prev[start] = start
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]] as const
+
+  while (head < tail && prev[goal] === -1) {
+    const cur = queue[head++], cx = cur % w, cy = Math.floor(cur / w)
+    for (const [dx, dy] of dirs) {
+      const nx = cx + dx, ny = cy + dy
+      if (!tileWalkable(world, nx, ny)) continue
+      const ni = ny * w + nx
+      if (prev[ni] !== -1) continue
+      prev[ni] = cur
+      queue[tail++] = ni
+    }
+  }
+  if (prev[goal] === -1) return []
+
+  const tiles: number[] = []
+  for (let cur = goal;; cur = prev[cur]) {
+    tiles.push(cur)
+    if (cur === start) break
+  }
+  tiles.reverse()
+
+  // Comprime trechos retos; o bot não precisa de um waypoint a cada tile.
+  const route: { x: number; y: number }[] = []
+  let lastDx = 0, lastDy = 0
+  for (let i = 1; i < tiles.length; i++) {
+    const ax = tiles[i - 1] % w, ay = Math.floor(tiles[i - 1] / w)
+    const bx = tiles[i] % w, by = Math.floor(tiles[i] / w)
+    const dx = bx - ax, dy = by - ay
+    if (i > 1 && (dx !== lastDx || dy !== lastDy)) {
+      route.push({ x: (ax + .5) * TILE, y: (ay + .5) * TILE })
+    }
+    lastDx = dx; lastDy = dy
+  }
+  route.push({ x: (gx + .5) * TILE, y: (gy + .5) * TILE })
+  return route
+}
 
 const zoneForLevel = (lv: number): string =>
   lv < 4 ? 'campo' : lv < 7 ? 'floresta' : lv < 10 ? 'lago' : 'vale'
@@ -42,6 +121,7 @@ export class BotBrain {
   stuckCheckAt = 0
   stuckPos = { x: 0, y: 0 }
   stuckCount = 0
+  grindAnchor: { x: number; y: number } | null = null
 
   constructor(game: Game, ent: PlayerEnt) {
     this.game = game
@@ -121,10 +201,10 @@ export class BotBrain {
       this.wanderAt = now + 2000 + rnd() * 4000
       this.wanderAng = rnd() * Math.PI * 2
     }
-    const vila = ZONE_ANCHORS.vila
+    const vila = { x: (ZONE_ANCHORS.vila.x + .5) * TILE, y: (ZONE_ANCHORS.vila.y + .5) * TILE }
     const wx = ent.x + Math.cos(this.wanderAng) * 30 * dt
     const wy = ent.y + Math.sin(this.wanderAng) * 30 * dt
-    if (walkable(this.game.world, wx, wy) && dist({ x: wx, y: wy }, vila) < 260) {
+    if (this.game.canStand(wx, wy) && dist({ x: wx, y: wy }, vila) < 260) {
       ent.x = wx; ent.y = wy
     }
   }
@@ -146,12 +226,16 @@ export class BotBrain {
       this.stuckCheckAt = Date.now() + 2600
       if (dist(ent, this.stuckPos) < 14) {
         this.stuckCount++
-        if (this.stuckCount >= 3) {
-          this.routeI++
+        if (this.stuckCount >= 2) {
+          const goal = this.route[this.route.length - 1]
+          const reroute = goal ? findBotPath(this.game.world, ent.x, ent.y, goal.x, goal.y) : []
+          if (reroute.length) {
+            this.route = reroute
+            this.routeI = 0
+          } else {
+            this.routeI++
+          }
           this.stuckCount = 0
-        } else {
-          const ang = Math.atan2(wp.y - ent.y, wp.x - ent.x) + (rnd() < 0.5 ? 1.5 : -1.5)
-          this.route.unshift({ x: ent.x + Math.cos(ang) * 110, y: ent.y + Math.sin(ang) * 110 })
         }
       } else this.stuckCount = 0
       this.stuckPos = { x: ent.x, y: ent.y }
@@ -250,44 +334,45 @@ export class BotBrain {
   currentAnchor(): { x: number; y: number } {
     const list = GRIND_ANCHORS[this.zone]
     if (!list || !list.length) return ZONE_ANCHORS[this.zone] || ZONE_ANCHORS.vila
-    return list[Math.floor(rnd() * list.length)]
+    if (!this.grindAnchor) this.grindAnchor = pick(list)
+    return this.grindAnchor
   }
 
   routeTo(zone: string, sameZoneOk: boolean) {
+    void sameZoneOk
     const ent = this.ent
-    this.zone = zone === 'vila' ? this.zone : zone
-    this.state = 'travel'; this.routeI = 0; this.targetId = null
-    const zA = ZONE_ANCHORS[zone === 'vila' ? 'vila' : this.zone] || ZONE_ANCHORS.vila
-    const gA = this.currentAnchor()
-    const gpx = { x: gA.x * 32, y: gA.y * 32 }
-    if (zone === 'vila') { this.route = [{ x: zA.x * 32, y: zA.y * 32 }]; return }
-    const zoneAnchorPx = { x: zA.x * 32, y: zA.y * 32 }
-    const dToZone = dist(ent, zoneAnchorPx)
-    if (sameZoneOk && dToZone < 700) this.route = [gpx]
-    else if (dToZone < 700) this.route = [gpx]
-    else {
-      const vila = ZONE_ANCHORS.vila
-      this.route = [{ x: vila.x * 32, y: vila.y * 32 }, zoneAnchorPx, gpx]
+    if (zone !== 'vila') {
+      if (zone !== this.zone) this.grindAnchor = null
+      this.zone = zone
+      // escolhe uma clareira estável até a próxima viagem
+      this.grindAnchor = pick(GRIND_ANCHORS[this.zone] || [ZONE_ANCHORS[this.zone] || ZONE_ANCHORS.vila])
     }
+    this.state = 'travel'
+    this.routeI = 0
+    this.targetId = null
+
+    const target = zone === 'vila' ? ZONE_ANCHORS.vila : this.currentAnchor()
+    const targetX = (target.x + .5) * TILE
+    const targetY = (target.y + .5) * TILE
+    this.route = findBotPath(this.game.world, ent.x, ent.y, targetX, targetY)
+    if (!this.route.length) this.route = [{ x: targetX, y: targetY }]
   }
 
   stepToward(tx: number, ty: number, step: number) {
     const ent = this.ent
-    const w = this.game.world
     const dx = tx - ent.x, dy = ty - ent.y
     const d = Math.hypot(dx, dy)
     if (d < 2 || step <= 0) return
     const sx = (dx / d) * step, sy = (dy / d) * step
     if (Math.abs(dx) > Math.abs(dy)) ent.dir = dx > 0 ? 3 : 2
     else ent.dir = dy > 0 ? 0 : 1
-    if (walkable(w, ent.x + sx * 1.6, ent.y + sy * 1.6)) { ent.x += sx; ent.y += sy }
-    else {
-      const ang = Math.atan2(dy, dx)
-      for (const off of [0.9, -0.9, 1.7, -1.7]) {
-        const a = ang + off
-        const nx = ent.x + Math.cos(a) * step, ny = ent.y + Math.sin(a) * step
-        if (walkable(w, nx, ny)) { ent.x = nx; ent.y = ny; return }
-      }
+
+    if (this.game.canStand(ent.x + sx, ent.y + sy)) {
+      ent.x += sx; ent.y += sy
+    } else if (this.game.canStand(ent.x + sx, ent.y)) {
+      ent.x += sx
+    } else if (this.game.canStand(ent.x, ent.y + sy)) {
+      ent.y += sy
     }
   }
 
