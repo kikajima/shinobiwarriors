@@ -47,36 +47,50 @@ const mod = (a: SkillArchetype, el: ElementId): Omit<SkillDef, 'name' | 'archety
   const b = { ...BASE[a] }
   switch (el) {
     case 'fogo':
-      b.mult *= 1.12
+      // maior dano bruto + queimadura aplicada pelo servidor
+      b.mult *= 1.18
       break
     case 'agua':
-      b.ch = Math.round(b.ch * 0.85)
+      // estilo eficiente: menos chakra e controle por lentidão
+      b.ch = Math.max(1, Math.round(b.ch * 0.72))
       break
     case 'raio':
-      b.cd = Math.round(b.cd * 0.88)
+      // explosivo: recargas e projéteis mais rápidos + crítico extra
+      b.cd = Math.round(b.cd * 0.78)
+      if (b.speed) b.speed = Math.round(b.speed * 1.18)
       break
     case 'vento':
-      b.range = Math.round(b.range * 1.18)
-      if (b.speed) b.speed = Math.round(b.speed * 1.12)
+      // zoning: alcance e velocidade altos + empurrão
+      b.range = Math.round(b.range * 1.30)
+      if (b.speed) b.speed = Math.round(b.speed * 1.25)
+      b.mult *= 0.96
       break
     case 'terra':
-      if (b.radius) b.radius = Math.round(b.radius * 1.18)
-      b.mult *= 1.05
+      // impacto pesado: área/dano maiores + breve atordoamento
+      if (b.radius) b.radius = Math.round(b.radius * 1.35)
+      b.mult *= 1.12
+      b.cd = Math.round(b.cd * 1.06)
       break
   }
   return b
 }
 
-const S = (name: string, archetype: SkillArchetype, el: ElementId): SkillDef => ({
+const S = (
+  name: string,
+  archetype: SkillArchetype,
+  el: ElementId,
+  overrides: Partial<SkillDef> = {},
+): SkillDef => ({
   name,
   archetype,
   ...mod(archetype, el),
+  ...overrides,
 })
 
 export const SKILLS: Record<ElementId, SkillDef[]> = {
   fogo: [
     S('Bola de Fogo', 'proj', 'fogo'),
-    S('Flores de Fênix', 'multi', 'fogo'),
+    S('Flores de Fênix', 'multi', 'fogo', { count: 5, mult: 0.62 }),
     S('Chamas do Dragão', 'line', 'fogo'),
     S('Mar de Chamas', 'aoe', 'fogo'),
   ],
@@ -94,13 +108,13 @@ export const SKILLS: Record<ElementId, SkillDef[]> = {
   ],
   vento: [
     S('Vendaval de Palma', 'proj', 'vento'),
-    S('Lâminas de Vendaval', 'multi', 'vento'),
+    S('Lâminas de Vendaval', 'multi', 'vento', { count: 5, mult: 0.58 }),
     S('Grande Avanço', 'line', 'vento'),
     S('Rasenshuriken', 'aoe', 'vento'),
   ],
   terra: [
     S('Pedra Voadora', 'proj', 'terra'),
-    S('Chuva de Rochas', 'multi', 'terra'),
+    S('Chuva de Rochas', 'multi', 'terra', { count: 4, mult: 0.70 }),
     S('Estaca de Terra', 'line', 'terra'),
     S('Pântano do Submundo', 'aoe', 'terra'),
   ],
