@@ -7,7 +7,7 @@ export interface AtlasFrame {
 
 export const TERRAIN_ATLAS_URL = '/game/gba/terrain.png'
 export const OBJECT_ATLAS_URL = '/game/gba/objects.png'
-export const PLAYER_FIRE_ATLAS_URL = '/game/gba/player-fire.png'
+export const PLAYER_FIRE_ATLAS_URL = '/game/gba/player-fire.png?v=dc79a16'
 
 const tile = (col: number, row: number): AtlasFrame => ({
   x: col * 32,
