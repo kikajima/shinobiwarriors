@@ -226,12 +226,21 @@ export class GameEngine {
                 if (nf.k === 'p') e = { id, kind:'player', n:nf.n||'???', lv:nf.lv, el:nf.el||'fogo', pal:nf.pal||0, hp:maxHpOf(nf.lv), hpPct:100, dir:0, ax:x, ay:y, at:t-50, bx:x, by:y, bt:t, x,y,moving:false,animT:0,lastSnapLocal:localT,flashUntil:0,lastHp:maxHpOf(nf.lv) };
                 else e = { id, kind:'monster', n:nf.n||'Monstro', lv:nf.lv, pal:0, t:nf.t||'bandido', hp:100,hpPct:100,dir:0,ax:x,ay:y,at:t-50,bx:x,by:y,bt:t,x,y,moving:false,animT:0,lastSnapLocal:localT,flashUntil:0,lastHp:100 };
                 this.entities.set(id,e);
-            } else { e.ax=e.bx;e.ay=e.by;e.at=e.bt;e.bx=x;e.by=y;e.bt=t;if(e.at===0){e.ax=x;e.ay=y;e.at=t-50;} }
+            } else {
+                e.ax=e.bx;e.ay=e.by;e.at=e.bt;e.bx=x;e.by=y;e.bt=t;
+                if(e.at===0){e.ax=x;e.ay=y;e.at=t-50;}
+                const nf=nfMap.get(id);
+                if(nf){
+                    e.lv=nf.lv;
+                    if(nf.k==='p'){e.n=nf.n||e.n;e.el=nf.el||e.el;e.pal=nf.pal??e.pal;}
+                    else {e.n=nf.n||e.n;e.t=nf.t||e.t;}
+                }
+            }
             e.dir=dir;e.lastSnapLocal=localT;return e;
         };
-        for(const row of snap.p){const e=touch(row[0],row[1],row[2],row[3],snap.t);if(!e)continue;const newHp=row[4];if(newHp<e.lastHp)e.flashUntil=performance.now()+130;e.lastHp=newHp;e.hp=newHp;e.hpPct=Math.max(0,Math.min(100,newHp/maxHpOf(e.lv)*100));}
+        for(const row of snap.p){const e=touch(row[0],row[1],row[2],row[3],snap.t);if(!e)continue;if(Number.isFinite(row[5]))e.lv=row[5];const newHp=row[4];if(newHp<e.lastHp)e.flashUntil=performance.now()+130;e.lastHp=newHp;e.hp=newHp;e.hpPct=Math.max(0,Math.min(100,newHp/maxHpOf(e.lv)*100));}
         for(const row of snap.m){const e=touch(row[0],row[1],row[2],row[3],snap.t);if(!e)continue;const pct=row[4];if(pct<e.lastHp)e.flashUntil=performance.now()+130;e.lastHp=pct;e.hpPct=pct;}
-        const selfRow=snap.p.find(r=>r[0]===this.selfId);if(selfRow&&!((_a=this.you)===null||_a===void 0?void 0:_a.dm)){const dx=selfRow[1]-this.selfX,dy=selfRow[2]-this.selfY;if(Math.hypot(dx,dy)>72){this.selfX=selfRow[1];this.selfY=selfRow[2];}}
+        const selfEnt=this.entities.get(this.selfId);if(selfEnt)selfEnt.lv=snap.you.lvl;const selfRow=snap.p.find(r=>r[0]===this.selfId);if(selfRow&&!((_a=this.you)===null||_a===void 0?void 0:_a.dm)){const dx=selfRow[1]-this.selfX,dy=selfRow[2]-this.selfY;if(Math.hypot(dx,dy)>72){this.selfX=selfRow[1];this.selfY=selfRow[2];}}
         const seenPr=new Set();for(const row of snap.pr){seenPr.add(row[0]);const p=this.projectiles.get(row[0]);if(p){p.sx=row[1];p.sy=row[2];p.vx=row[3];p.vy=row[4];p.k=row[5];p.snapT=localT;}else this.projectiles.set(row[0],{id:row[0],sx:row[1],sy:row[2],vx:row[3],vy:row[4],k:row[5],snapT:localT,trailT:0});}
         for(const[id,p]of[...this.projectiles])if(!seenPr.has(id)&&localT-p.snapT>250)this.projectiles.delete(id);
         for(const[id,e]of[...this.entities])if(id!==this.selfId&&localT-e.lastSnapLocal>1600)this.entities.delete(id);
