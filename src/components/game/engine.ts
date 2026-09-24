@@ -3,7 +3,7 @@ import { net } from './net';
 import { InputController } from './input';
 import { audio } from './audio';
 import { buildCharSprites, buildMonsterSprites, buildNpcSprites, PIX_SCALE } from './sprites';
-import { makePlayerVariant, type GameArt } from './assets';
+import type { GameArt } from './assets';
 import { drawGame } from './renderer';
 import { EL_LIST, type ElementId, type FxData, type DmgData, type SnapshotData, type WelcomeData, type YouState, maxHpOf, TILE } from './types';
 export interface Entity {
@@ -83,6 +83,7 @@ export class GameEngine {
     tiles: Record<string, HTMLCanvasElement[]>;
     chars = new Map<string, HTMLCanvasElement[][]>();
     playerArt: Partial<Record<ElementId, HTMLCanvasElement[][]>>;
+    rosterMeta = new Map<number, WelcomeData['roster'][number]>();
     monsters: Record<string, HTMLCanvasElement[][]>;
     objects: Record<string, HTMLCanvasElement>;
     npc: HTMLCanvasElement[][];
@@ -124,6 +125,7 @@ export class GameEngine {
         this.shake = 0;
         this.timeOffset = 0;
         this.chars = new Map();
+        this.rosterMeta = new Map();
         this.zoneName = 'Vila da Folha';
         this.zoneSafe = true;
         this.targetId = null;
@@ -150,6 +152,38 @@ export class GameEngine {
         this.selfY = welcome.self.y;
         this.camX = this.selfX;
         this.camY = this.selfY;
+
+        // O jogador local não depende do primeiro snapshot para existir
+        // visualmente. O welcome já contém posição/elemento/nível e o roster
+        // contém a paleta sorteada pelo servidor.
+        for (const player of welcome.roster) this.rosterMeta.set(player.id, player);
+        const selfMeta = this.rosterMeta.get(this.selfId);
+        const selfPal = selfMeta?.pal ?? 0;
+        const initialHp = maxHpOf(welcome.self.lv);
+        this.entities.set(this.selfId, {
+            id: this.selfId,
+            kind: 'player',
+            n: welcome.self.n,
+            lv: welcome.self.lv,
+            el: welcome.self.el,
+            pal: selfPal,
+            hp: initialHp,
+            hpPct: 100,
+            dir: 0,
+            ax: this.selfX,
+            ay: this.selfY,
+            at: welcome.t - 50,
+            bx: this.selfX,
+            by: this.selfY,
+            bt: welcome.t,
+            x: this.selfX,
+            y: this.selfY,
+            moving: false,
+            animT: 0,
+            lastSnapLocal: performance.now(),
+            flashUntil: 0,
+            lastHp: initialHp,
+        });
         const { w, h } = this.map;
         this.walkGrid = new Uint8Array(w * h);
         for (let y = 0; y < h; y++) {
@@ -178,7 +212,9 @@ export class GameEngine {
         let s = this.chars.get(key);
         if (!s) {
             const atlasFrames = this.playerArt[el];
-            s = atlasFrames ? makePlayerVariant(atlasFrames, pal) : buildCharSprites(el, pal);
+            // Durante o piloto GBA priorizamos confiabilidade. A variação por
+            // paleta volta depois que o contrato visual estiver validado.
+            s = atlasFrames ?? buildCharSprites(el, pal);
             this.chars.set(key, s);
         }
         return s;
@@ -226,9 +262,18 @@ export class GameEngine {
         const touch = (id, x, y, dir, t) => {
             let e = this.entities.get(id);
             if (!e) {
-                const nf = nfMap.get(id); if (!nf) return undefined;
-                if (nf.k === 'p') e = { id, kind:'player', n:nf.n||'???', lv:nf.lv, el:nf.el||'fogo', pal:nf.pal||0, hp:maxHpOf(nf.lv), hpPct:100, dir:0, ax:x, ay:y, at:t-50, bx:x, by:y, bt:t, x,y,moving:false,animT:0,lastSnapLocal:localT,flashUntil:0,lastHp:maxHpOf(nf.lv) };
-                else e = { id, kind:'monster', n:nf.n||'Monstro', lv:nf.lv, pal:0, t:nf.t||'bandido', hp:100,hpPct:100,dir:0,ax:x,ay:y,at:t-50,bx:x,by:y,bt:t,x,y,moving:false,animT:0,lastSnapLocal:localT,flashUntil:0,lastHp:100 };
+                const nf = nfMap.get(id);
+                const roster = this.rosterMeta.get(id);
+                if (nf?.k === 'm') {
+                    e = { id, kind:'monster', n:nf.n||'Monstro', lv:nf.lv, pal:0, t:nf.t||'bandido', hp:100,hpPct:100,dir:0,ax:x,ay:y,at:t-50,bx:x,by:y,bt:t,x,y,moving:false,animT:0,lastSnapLocal:localT,flashUntil:0,lastHp:100 };
+                } else {
+                    const player = nf?.k === 'p' ? nf : roster;
+                    if (!player) return undefined;
+                    const lv = player.lv;
+                    const el = player.el || 'fogo';
+                    const pal = player.pal ?? 0;
+                    e = { id, kind:'player', n:player.n||'???', lv, el, pal, hp:maxHpOf(lv), hpPct:100, dir:0, ax:x, ay:y, at:t-50, bx:x, by:y, bt:t, x,y,moving:false,animT:0,lastSnapLocal:localT,flashUntil:0,lastHp:maxHpOf(lv) };
+                }
                 this.entities.set(id,e);
             } else {
                 e.ax=e.bx;e.ay=e.by;e.at=e.bt;e.bx=x;e.by=y;e.bt=t;
@@ -236,8 +281,10 @@ export class GameEngine {
                 const nf=nfMap.get(id);
                 if(nf){
                     e.lv=nf.lv;
-                    if(nf.k==='p'){e.n=nf.n||e.n;e.el=nf.el||e.el;e.pal=nf.pal??e.pal;}
-                    else {e.n=nf.n||e.n;e.t=nf.t||e.t;}
+                    if(nf.k==='p'){
+                        e.n=nf.n||e.n;e.el=nf.el||e.el;e.pal=nf.pal??e.pal;
+                        this.rosterMeta.set(id,{id,n:e.n,lv:nf.lv,el:e.el||'fogo',pal:e.pal});
+                    } else {e.n=nf.n||e.n;e.t=nf.t||e.t;}
                 }
             }
             e.dir=dir;e.lastSnapLocal=localT;return e;
