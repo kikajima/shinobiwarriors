@@ -7,6 +7,8 @@ let snapshots = 0
 let chats = 0
 let dmg = 0
 let fx = 0
+let welcomed = false
+let failed = false
 
 socket.on('connect', () => {
   console.log('connected:', socket.id)
@@ -16,6 +18,7 @@ socket.on('connect', () => {
 socket.on('meta', (d) => console.log('meta:', JSON.stringify(d)))
 
 socket.on('welcome', (d) => {
+  welcomed = true
   console.log('welcome: id=', d.id, 'self=', JSON.stringify(d.self), 'skills=', d.skills.length, 'map tiles=', d.map.tiles.length, 'objects=', d.map.objects.length, 'roster=', d.roster.length)
   setTimeout(() => {
     socket.emit('move', { x: d.self.x + 300, y: d.self.y, dir: 3 })
@@ -26,7 +29,8 @@ socket.on('welcome', (d) => {
   }, 500)
 })
 
-socket.on('joinError', (d) => console.log('joinError:', JSON.stringify(d)))
+socket.on('joinError', (d) => { failed = true; console.error('joinError:', JSON.stringify(d)) })
+socket.on('connect_error', (e) => { failed = true; console.error('connect_error:', e.message) })
 socket.on('snapshot', (d) => {
   snapshots++
   if (snapshots === 20) {
@@ -48,6 +52,9 @@ socket.on('dead', () => console.log('dead!'))
 socket.on('revived', (d) => console.log('revived:', JSON.stringify(d)))
 
 setTimeout(() => {
-  console.log(`--- resumo: snapshots=${snapshots} chats=${chats} dmg=${dmg} fx=${fx}`)
-  process.exit(0)
+  console.log(`--- resumo: welcome=${welcomed} snapshots=${snapshots} chats=${chats} dmg=${dmg} fx=${fx}`)
+  const ok = !failed && welcomed && snapshots >= 5
+  if (!ok) console.error('SMOKE TEST FALHOU: servidor não completou o fluxo mínimo de jogo.')
+  socket.disconnect()
+  process.exit(ok ? 0 : 1)
 }, 12000)
