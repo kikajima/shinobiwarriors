@@ -11,9 +11,13 @@ class AudioEngine {
   muted = false
 
   init() {
-    if (this.ctx) return
+    if (this.ctx) {
+      if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {})
+      return
+    }
     try {
       this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+      if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {})
     } catch {
       // sem áudio
     }
@@ -37,6 +41,7 @@ class AudioEngine {
 
   play(name: SfxName) {
     if (!this.ctx || this.muted) return
+    if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {})
     switch (name) {
       case 'hit':
         this.beep(220, 0.08, 'square', 0.06, -80)
