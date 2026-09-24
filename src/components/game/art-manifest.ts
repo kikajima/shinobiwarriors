@@ -7,6 +7,7 @@ export interface AtlasFrame {
 
 export const TERRAIN_ATLAS_URL = '/game/gba/terrain.png'
 export const OBJECT_ATLAS_URL = '/game/gba/objects.png'
+export const PLAYER_FIRE_ATLAS_URL = '/game/gba/player-fire.png'
 
 const tile = (col: number, row: number): AtlasFrame => ({
   x: col * 32,
@@ -75,3 +76,21 @@ export const OBJECT_FRAMES: Record<string, AtlasFrame> = {
   shop:     { x: 112, y: 100, w: 81, h: 81 },
   fountain: { x: 215, y: 104, w: 55, h: 51 },
 }
+
+
+export const PLAYER_FRAME_W = 32
+export const PLAYER_FRAME_H = 40
+
+/**
+ * Atlas piloto do player:
+ *   linhas: baixo, cima, esquerda, direita
+ *   colunas: idle, passo A, passo B
+ */
+export const PLAYER_FIRE_FRAMES: AtlasFrame[][] = Array.from({ length: 4 }, (_, dir) =>
+  Array.from({ length: 3 }, (_, frame) => ({
+    x: frame * PLAYER_FRAME_W,
+    y: dir * PLAYER_FRAME_H,
+    w: PLAYER_FRAME_W,
+    h: PLAYER_FRAME_H,
+  })),
+)
