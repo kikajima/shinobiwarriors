@@ -1,6 +1,7 @@
 // ============================================================
-// Shinobi Online — camada de rede (socket.io)
-// ATENÇÃO: nunca usar porta na URL — sempre XTransformPort.
+// Shinobi Online — camada de rede (Socket.IO)
+// O navegador fala sempre com a mesma origem; o Caddy encaminha
+// /socket.io/ para o game server na porta 3003.
 // ============================================================
 
 'use client'
@@ -36,9 +37,8 @@ export class NetClient {
   connect(): Socket {
     // idempotente: reutiliza a instância existente (mesmo ainda conectando)
     if (this.socket) return this.socket
-    // Never use PORT in the URL, always use XTransformPort
-    // DO NOT change the path, it is used by Caddy to forward the request to the correct port
-    this.socket = io('/?XTransformPort=3003', {
+    this.socket = io('/', {
+      path: '/socket.io/',
       transports: ['websocket', 'polling'],
       forceNew: true,
       reconnection: true,
