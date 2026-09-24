@@ -8,7 +8,6 @@ const PATH = `${import.meta.dir}/save.json`
 
 export function loadSave(): Record<string, SavedPlayer> {
   try {
-    const file = Bun.file(PATH)
     // leitura síncrona via readFileSync
     const fs = require('fs')
     if (fs.existsSync(PATH)) {
@@ -28,3 +27,4 @@ export function saveReal(data: Record<string, SavedPlayer>) {
   } catch (e) {
     console.warn('[persist] falha ao salvar save.json:', e)
   }
+}
