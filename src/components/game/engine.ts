@@ -3,7 +3,7 @@ import { net } from './net';
 import { InputController } from './input';
 import { audio } from './audio';
 import { buildCharSprites, buildMonsterSprites, buildNpcSprites, PIX_SCALE } from './sprites';
-import type { GameArt } from './assets';
+import { makePlayerVariant, type GameArt } from './assets';
 import { drawGame } from './renderer';
 import { EL_LIST, type ElementId, type FxData, type DmgData, type SnapshotData, type WelcomeData, type YouState, maxHpOf, TILE } from './types';
 export interface Entity {
@@ -82,6 +82,7 @@ export class GameEngine {
     timeOffset = 0;
     tiles: Record<string, HTMLCanvasElement[]>;
     chars = new Map<string, HTMLCanvasElement[][]>();
+    playerArt: Partial<Record<ElementId, HTMLCanvasElement[][]>>;
     monsters: Record<string, HTMLCanvasElement[][]>;
     objects: Record<string, HTMLCanvasElement>;
     npc: HTMLCanvasElement[][];
@@ -165,6 +166,7 @@ export class GameEngine {
             this.objRender.push({ k: o.k, x: o.x, y: o.y, sortY: (o.y + fh) * TILE });
         }
         this.tiles = art.tiles;
+        this.playerArt = art.players;
         this.monsters = buildMonsterSprites();
         this.objects = art.objects;
         this.npc = buildNpcSprites();
@@ -175,7 +177,8 @@ export class GameEngine {
         const key = `${el}:${pal}`;
         let s = this.chars.get(key);
         if (!s) {
-            s = buildCharSprites(el, pal);
+            const atlasFrames = this.playerArt[el];
+            s = atlasFrames ? makePlayerVariant(atlasFrames, pal) : buildCharSprites(el, pal);
             this.chars.set(key, s);
         }
         return s;
