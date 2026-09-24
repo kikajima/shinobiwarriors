@@ -25,7 +25,7 @@ export const ELEMENTS: ElementInfo[] = [
     id: 'fogo',
     name: 'Fogo',
     jutsuStyle: 'Katon',
-    desc: 'Ninjutsu de destruição. Dano alto e chamas persistentes.',
+    desc: 'Dano alto e queimadura: jutsus de fogo continuam ferindo o alvo.',
     color: '#ea580c',
     icon: Flame,
     skills: [
@@ -39,7 +39,7 @@ export const ELEMENTS: ElementInfo[] = [
     id: 'agua',
     name: 'Água',
     jutsuStyle: 'Suiton',
-    desc: 'Ninjutsu versátil. Custos de chakra reduzidos.',
+    desc: 'Controle e eficiência: custa menos chakra, desacelera e recupera chakra ao acertar.',
     color: '#06b6d4',
     icon: Droplets,
     skills: [
@@ -53,7 +53,7 @@ export const ELEMENTS: ElementInfo[] = [
     id: 'raio',
     name: 'Raio',
     jutsuStyle: 'Raiton',
-    desc: 'Velocidade extrema. Recargas mais rápidas e perfuração.',
+    desc: 'Explosão e velocidade: recargas rápidas, projéteis velozes e crítico elevado.',
     color: '#facc15',
     icon: Zap,
     skills: [
@@ -67,7 +67,7 @@ export const ELEMENTS: ElementInfo[] = [
     id: 'vento',
     name: 'Vento',
     jutsuStyle: 'Fuuton',
-    desc: 'Alcance superior. Lâminas de vento ágeis.',
+    desc: 'Maior alcance e velocidade; os jutsus empurram inimigos para longe.',
     color: '#a3e635',
     icon: Wind,
     skills: [
@@ -81,7 +81,7 @@ export const ELEMENTS: ElementInfo[] = [
     id: 'terra',
     name: 'Terra',
     jutsuStyle: 'Doton',
-    desc: 'Áreas amplas e impacto pesado.',
+    desc: 'Impacto e defesa: áreas maiores, breve atordoamento e resistência a dano.',
     color: '#a16207',
     icon: Mountain,
     skills: [
