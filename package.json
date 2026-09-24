@@ -12,7 +12,8 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "dev:web": "next dev -p 3000",
-    "dev:game": "cd mini-services/game-server && bun run dev"
+    "dev:game": "cd mini-services/game-server && bun run dev",
+    "art:check": "node scripts/validate-game-art.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
