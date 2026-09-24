@@ -1,5 +1,6 @@
 // Visualização ASCII do mundo gerado
-import { genWorld } from './src/world'
+import { genWorld, walkable } from './src/world'
+import { findBotPath } from './src/bots'
 
 const world = genWorld()
 console.log(`tiles=${world.tiles.length} (esperado 64)`)
@@ -26,8 +27,25 @@ for (let y = 0; y < 64; y++) {
 }
 
 // valida walkable nos anchors
-import { walkable } from './src/world'
 const probes: Array<[string, number, number]> = [
   ['vila', 32.5, 35], ['campo', 50, 32], ['floresta', 32, 15], ['lago', 34, 46], ['vale', 15, 32],
 ]
-for (const [n, x, y] of probes) console.log(`walkable ${n}:`, walkable(world, x * 32, y * 32))
+for (const [n, x, y] of probes) {
+  const ok = walkable(world, x * 32, y * 32)
+  console.log(`walkable ${n}:`, ok)
+  if (!ok) throw new Error(`anchor bloqueada: ${n}`)
+}
+
+const village = { x: 32.5 * 32, y: 35.5 * 32 }
+for (const [name, x, y] of probes.filter(([name]) => name !== 'vila')) {
+  const route = findBotPath(world, village.x, village.y, (x + .5) * 32, (y + .5) * 32)
+  console.log(`route vila -> ${name}: ${route.length} waypoints`)
+  if (!route.length) throw new Error(`sem rota caminhável da vila para ${name}`)
+  for (const point of route) {
+    if (!walkable(world, point.x, point.y)) {
+      throw new Error(`rota para ${name} contém waypoint bloqueado em ${point.x},${point.y}`)
+    }
+  }
+}
+
+console.log('map/pathfinding OK')
