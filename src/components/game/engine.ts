@@ -2,7 +2,8 @@
 import { net } from './net';
 import { InputController } from './input';
 import { audio } from './audio';
-import { buildTiles, buildCharSprites, buildMonsterSprites, buildObjects, buildNpcSprites, PIX_SCALE } from './sprites';
+import { buildCharSprites, buildMonsterSprites, buildNpcSprites, PIX_SCALE } from './sprites';
+import type { GameArt } from './assets';
 import { drawGame } from './renderer';
 import { EL_LIST, type ElementId, type FxData, type DmgData, type SnapshotData, type WelcomeData, type YouState, maxHpOf, TILE } from './types';
 export interface Entity {
@@ -99,7 +100,7 @@ export class GameEngine {
     private fps = 60;
     private running = false;
     private dmgFlash = 0;
-    constructor(canvas: HTMLCanvasElement, welcome: WelcomeData, input: InputController) {
+    constructor(canvas: HTMLCanvasElement, welcome: WelcomeData, input: InputController, art: GameArt) {
         this.objRender = [];
         this.minimapBase = null;
         this.entities = new Map();
@@ -163,9 +164,9 @@ export class GameEngine {
                     this.walkGrid[(o.y + oy) * w + (o.x + ox)] = 1;
             this.objRender.push({ k: o.k, x: o.x, y: o.y, sortY: (o.y + fh) * TILE });
         }
-        this.tiles = buildTiles();
+        this.tiles = art.tiles;
         this.monsters = buildMonsterSprites();
-        this.objects = buildObjects();
+        this.objects = art.objects;
         this.npc = buildNpcSprites();
         this.charSprites(this.el, 0);
         this.resize();
