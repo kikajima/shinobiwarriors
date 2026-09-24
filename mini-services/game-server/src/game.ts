@@ -26,7 +26,7 @@ export class Game {
    }
    return{x,y};
  }
- spawnMonsters(){for(const sz of this.world.spawns){const def=MONSTERS[sz.monster];for(let i=0;i<sz.count;i++){let x=0,y=0,ok=false;for(let tries=0;tries<40&&!ok;tries++){x=(sz.x1+rnd()*(sz.x2-sz.x1)+.5)*32;y=(sz.y1+rnd()*(sz.y2-sz.y1)+.5)*32;ok=walkable(this.world,x,y)}if(!ok)continue;this.monsters.set(this.nextId,{id:this.nextId++,t:sz.monster,name:def.name,lv:def.lv,hp:def.hp,maxHp:def.hp,atk:def.atk,xp:def.xp,goldMin:def.gold[0],goldMax:def.gold[1],speed:def.speed,aggroR:def.aggro,radius:def.radius,scale:def.scale,boss:!!def.boss,respawnMs:def.respawn,x,y,spawnX:x,spawnY:y,dir:0,aggroId:null,atkAt:0,dead:false,respawnAt:0,wanderT:0,wanderDir:rnd()*Math.PI*2,wanderMoving:false,slamAt:Date.now()+4000,slamPending:null})}}console.log(`[mundo] ${this.monsters.size} monstros spawnados`)}
+ spawnMonsters(){for(const sz of this.world.spawns){const def=MONSTERS[sz.monster];for(let i=0;i<sz.count;i++){let x=0,y=0,ok=false;for(let tries=0;tries<40&&!ok;tries++){x=(sz.x1+rnd()*(sz.x2-sz.x1)+.5)*32;y=(sz.y1+rnd()*(sz.y2-sz.y1)+.5)*32;ok=walkable(this.world,x,y)}if(!ok)continue;this.monsters.set(this.nextId,{id:this.nextId++,t:sz.monster,name:def.name,lv:def.lv,hp:def.hp,maxHp:def.hp,atk:def.atk,xp:def.xp,goldMin:def.gold[0],goldMax:def.gold[1],speed:def.speed,aggroR:def.aggro,radius:def.radius,scale:def.scale,boss:!!def.boss,respawnMs:def.respawn,x,y,spawnX:x,spawnY:y,dir:0,aggroId:null,atkAt:0,dead:false,respawnAt:0,wanderT:0,wanderDir:rnd()*Math.PI*2,wanderMoving:false,slamAt:Date.now()+4000,slamPending:null,burnUntil:0,burnNextAt:0,burnDamage:0,burnOwnerId:null,slowUntil:0,stunUntil:0})}}console.log(`[mundo] ${this.monsters.size} monstros spawnados`)}
  spawnInitialBots(){for(let i=0;i<BOT_TARGET;i++)this.addBot();console.log(`[mundo] ${BOT_TARGET} shinobis (bots) conectados`)}
  addBot(){
    const used=new Set([...this.players.values()].map(p=>p.name.toLowerCase())),pool=[];
@@ -83,23 +83,127 @@ export class Game {
    if(Number.isInteger(msg.dir)&&msg.dir>=0&&msg.dir<=3)ent.dir=msg.dir;
  }
  basicAttack(ent,tx,ty){if(ent.dead)return;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const now=Date.now();if(now<ent.cds[0])return;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy);if(d<1){dx=0;dy=1}const ang=Math.atan2(dy,dx);ent.cds[0]=now+BASIC.cd;ent.lastCombatAt=now;this.emitNear(ent.x,ent.y,900,'fx',{k:'slash',x:ent.x,y:ent.y,tx,ty});for(const m of this.monsters.values()){if(m.dead)continue;const md=dist(m,ent);if(md>BASIC.range+m.radius)continue;const mang=Math.atan2(m.y-ent.y,m.x-ent.x);let diff=Math.abs(mang-ang);if(diff>Math.PI)diff=Math.PI*2-diff;if(diff<BASIC.arc*Math.PI/180)this.hitMonster(m,ent,atkOf(ent.lv),1)}}
- castSkill(ent,idx,tx,ty){if(ent.dead||idx<0||idx>3)return false;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const s=SKILLS[ent.el][idx],now=Date.now();if(now<ent.cds[1+idx]||ent.ch<s.ch)return false;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy)||1,nx=dx/d,ny=dy/d;if(Math.abs(nx)>Math.abs(ny))ent.dir=nx>0?3:2;else ent.dir=ny>0?0:1;ent.cds[1+idx]=now+s.cd;ent.ch-=s.ch;ent.lastCombatAt=now;const el=ent.el;switch(s.archetype){case'proj':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,false,10,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',el,x:ent.x,y:ent.y});break;case'multi':for(let i=-1;i<=1;i++){const a=Math.atan2(ny,nx)+i*.23;this.spawnProjectile(ent,idx,Math.cos(a),Math.sin(a),s.speed,s.mult,false,9,s.range)}this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',el,x:ent.x,y:ent.y});break;case'line':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,true,15,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',el,x:ent.x,y:ent.y});break;case'dash':{const want=Math.min(s.range,d);let moved=0;const hitSet=new Set();while(moved<want){const step=Math.min(13,want-moved),nxp=ent.x+nx*step,nyp=ent.y+ny*step;if(!walkable(this.world,nxp,nyp))break;ent.x=nxp;ent.y=nyp;moved+=step;for(const m of this.monsters.values())if(!m.dead&&!hitSet.has(m.id)&&dist(m,ent)<46+m.radius){hitSet.add(m.id);this.hitMonster(m,ent,atkOf(ent.lv),s.mult)}}this.emitNear(ent.x,ent.y,1100,'fx',{k:'dash',el,x:ent.x,y:ent.y,tx:ent.x+nx*60,ty:ent.y+ny*60});break}case'aoe':{const cd=Math.min(s.range,d),cx=ent.x+nx*cd,cy=ent.y+ny*cd;this.emitNear(cx,cy,1100,'fx',{k:'aoe',el,x:cx,y:cy,r:s.radius});for(const m of this.monsters.values())if(!m.dead&&dist(m,{x:cx,y:cy})<s.radius+m.radius)this.hitMonster(m,ent,atkOf(ent.lv),s.mult);break}}return true}
+ castSkill(ent,idx,tx,ty){if(ent.dead||idx<0||idx>3)return false;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const s=SKILLS[ent.el][idx],now=Date.now();if(now<ent.cds[1+idx]||ent.ch<s.ch)return false;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy)||1,nx=dx/d,ny=dy/d;if(Math.abs(nx)>Math.abs(ny))ent.dir=nx>0?3:2;else ent.dir=ny>0?0:1;ent.cds[1+idx]=now+s.cd;ent.ch-=s.ch;ent.lastCombatAt=now;const el=ent.el;switch(s.archetype){case'proj':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,false,10,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',el,x:ent.x,y:ent.y});break;case'multi':{const count=Math.max(1,s.count||3),mid=(count-1)/2;for(let i=0;i<count;i++){const a=Math.atan2(ny,nx)+(i-mid)*.18;this.spawnProjectile(ent,idx,Math.cos(a),Math.sin(a),s.speed,s.mult,false,9,s.range)}this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',el,x:ent.x,y:ent.y});break;}case'line':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,true,15,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',el,x:ent.x,y:ent.y});break;case'dash':{const want=Math.min(s.range,d);let moved=0;const hitSet=new Set();while(moved<want){const step=Math.min(13,want-moved),nxp=ent.x+nx*step,nyp=ent.y+ny*step;if(!walkable(this.world,nxp,nyp))break;ent.x=nxp;ent.y=nyp;moved+=step;for(const m of this.monsters.values())if(!m.dead&&!hitSet.has(m.id)&&dist(m,ent)<46+m.radius){hitSet.add(m.id);this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true)}}this.emitNear(ent.x,ent.y,1100,'fx',{k:'dash',el,x:ent.x,y:ent.y,tx:ent.x+nx*60,ty:ent.y+ny*60});break}case'aoe':{const cd=Math.min(s.range,d),cx=ent.x+nx*cd,cy=ent.y+ny*cd;this.emitNear(cx,cy,1100,'fx',{k:'aoe',el,x:cx,y:cy,r:s.radius});for(const m of this.monsters.values())if(!m.dead&&dist(m,{x:cx,y:cy})<s.radius+m.radius)this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true);break}}return true}
  spawnProjectile(ent,idx,nx,ny,speed,mult,pierce,radius,range){const id=this.nextId++;this.projectiles.set(id,{id,owner:ent.id,x:ent.x+nx*22,y:ent.y+ny*22-6,vx:nx*speed,vy:ny*speed,k:EL_LIST.indexOf(ent.el)*4+idx,dmg:atkOf(ent.lv)*mult,pierce,radius,ttl:range/speed,hitIds:new Set()})}
- hitMonster(m,attacker,base,mult){const crit=rnd()<CRIT_CHANCE+(attacker.el==='raio'?.05:0);let dmg=base*mult*(.9+rnd()*.2);if(crit)dmg*=CRIT_MULT;dmg=Math.max(1,Math.round(dmg));m.hp-=dmg;m.aggroId=attacker.id;attacker.lastCombatAt=Date.now();this.emitNear(m.x,m.y,900,'dmg',{x:m.x,y:m.y-26,v:dmg,c:crit?1:0,tid:m.id});if(m.hp<=0)this.killMonster(m,attacker)}
+ hitMonster(m,attacker,base,mult,elemental=false){
+   const now=Date.now();
+   const lightningBonus=elemental&&attacker.el==='raio'?.12:0;
+   const crit=rnd()<CRIT_CHANCE+lightningBonus;
+   let dmg=base*mult*(.9+rnd()*.2);
+   if(crit)dmg*=CRIT_MULT;
+   dmg=Math.max(1,Math.round(dmg));
+   m.hp-=dmg;
+   m.aggroId=attacker.id;
+   attacker.lastCombatAt=now;
+
+   if(elemental){
+     switch(attacker.el){
+       case'fogo':
+         m.burnUntil=now+2200;
+         m.burnNextAt=Math.min(m.burnNextAt||now,now+500);
+         m.burnDamage=Math.max(2,Math.round(dmg*.08));
+         m.burnOwnerId=attacker.id;
+         break;
+       case'agua':
+         m.slowUntil=Math.max(m.slowUntil,now+1800);
+         attacker.ch=Math.min(maxChOf(attacker.lv),attacker.ch+2);
+         break;
+       case'vento':{
+         if(!m.boss){
+           const dx=m.x-attacker.x,dy=m.y-attacker.y,d=Math.hypot(dx,dy)||1;
+           const nx=m.x+dx/d*24,ny=m.y+dy/d*24;
+           if(walkable(this.world,nx,ny)){m.x=nx;m.y=ny}
+         }
+         break;
+       }
+       case'terra':
+         m.stunUntil=Math.max(m.stunUntil,now+(m.boss?220:520));
+         break;
+     }
+   }
+
+   this.emitNear(m.x,m.y,900,'dmg',{x:m.x,y:m.y-26,v:dmg,c:crit?1:0,tid:m.id});
+   if(m.hp<=0)this.killMonster(m,attacker);
+ }
  killMonster(m,killer){m.hp=0;m.dead=true;m.aggroId=null;m.slamPending=null;m.respawnAt=Date.now()+m.respawnMs;this.forgetEntity(m.id);this.emitNear(m.x,m.y,1000,'fx',{k:'death',x:m.x,y:m.y,boss:m.boss?1:0});const gold=m.goldMin+Math.floor(rnd()*(m.goldMax-m.goldMin+1));killer.gold+=gold;this.broadcast('kill',{k:killer.name,klv:killer.lv,v:m.name,mlv:m.lv,g:gold,xp:m.xp});this.gainXp(killer,m.xp);if(killer.kind==='human')this.progressMission(killer,m.t);if(m.boss)this.sys(`${killer.name} derrotou o Zetsu Ancião! Um novo irá surgir no Vale do Fim...`)}
  gainXp(ent,xp){if(ent.lv>=MAX_LEVEL)return;ent.xp+=xp;let leveled=false;while(ent.lv<MAX_LEVEL&&ent.xp>=xpNeedOf(ent.lv)){ent.xp-=xpNeedOf(ent.lv);ent.lv++;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);leveled=true}if(leveled){this.emitNear(ent.x,ent.y,1000,'fx',{k:'lvl',x:ent.x,y:ent.y});this.broadcast('lvl',{id:ent.id,lv:ent.lv,n:ent.name});this.sys(`${ent.name} alcançou o nível ${ent.lv}!`);if(ent.bot)ent.bot.onLevelUp()}}
  progressMission(ent,monsterType){const mi=MISSIONS[ent.mi];if(!mi||(mi.monster!=='any'&&mi.monster!==monsterType))return;ent.mp++;if(ent.mp>=mi.need){ent.gold+=mi.gold;this.gainXp(ent,mi.xp);ent.socket?.emit('mission',{i:ent.mi,done:true,name:mi.name,gold:mi.gold,xp:mi.xp});this.sys(`${ent.name} completou a missão "${mi.name}"!`);if(mi.repeat)ent.mp=0;else{ent.mi=Math.min(ent.mi+1,MISSIONS.length-1);ent.mp=0}const next=MISSIONS[ent.mi];ent.socket?.emit('mission',{i:ent.mi,name:next.name,monster:next.monster,need:next.need,prog:0})}else ent.socket?.emit('mission',{i:ent.mi,prog:ent.mp,need:mi.need,name:mi.name})}
  usePotion(ent){if(ent.dead||ent.pot<=0)return false;const now=Date.now();if(now<ent.cds[5])return false;ent.cds[5]=now+POTION.cd;ent.pot--;const heal=Math.round(maxHpOf(ent.lv)*POTION.healPct);ent.hp=Math.min(maxHpOf(ent.lv),ent.hp+heal);ent.lastCombatAt=now;this.emitNear(ent.x,ent.y,800,'dmg',{x:ent.x,y:ent.y-26,v:heal,h:1});this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});return true}
- damagePlayer(ent,dmg,src){if(ent.dead||zoneAt(this.world,ent.x,ent.y).safe)return;ent.hp-=Math.round(dmg);ent.lastCombatAt=Date.now();this.emitNear(ent.x,ent.y,900,'dmg',{x:ent.x,y:ent.y-30,v:Math.round(dmg),c:0,tp:1});if(ent.hp<=0){ent.hp=0;ent.dead=true;this.forgetEntity(ent.id);this.emitNear(ent.x,ent.y,1000,'fx',{k:'pdeath',x:ent.x,y:ent.y});this.sys(`${ent.name} foi derrotado por ${src.name}!`);if(ent.kind==='human')ent.socket?.emit('dead',{by:src.name});else ent.bot?.onDeath(src)}}
+ damagePlayer(ent,dmg,src){if(ent.dead||zoneAt(this.world,ent.x,ent.y).safe)return;if(ent.el==='terra')dmg*=.84;ent.hp-=Math.round(dmg);ent.lastCombatAt=Date.now();this.emitNear(ent.x,ent.y,900,'dmg',{x:ent.x,y:ent.y-30,v:Math.round(dmg),c:0,tp:1});if(ent.hp<=0){ent.hp=0;ent.dead=true;this.forgetEntity(ent.id);this.emitNear(ent.x,ent.y,1000,'fx',{k:'pdeath',x:ent.x,y:ent.y});this.sys(`${ent.name} foi derrotado por ${src.name}!`);if(ent.kind==='human')ent.socket?.emit('dead',{by:src.name});else ent.bot?.onDeath(src)}}
  respawnPlayer(ent){if(!ent.dead)return;ent.dead=false;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);const spawn=this.findWalkableNear(VILLAGE_SPAWN.x,VILLAGE_SPAWN.y,60);ent.x=spawn.x;ent.y=spawn.y;ent.cds=[0,0,0,0,0,0];if(ent.kind==='human')ent.socket?.emit('revived',{x:ent.x,y:ent.y})}
  handleChat(socket,msg){const ent=this.entOf(socket);if(!ent)return;const now=Date.now();if(now-ent.lastChatAt<1200)return;ent.lastChatAt=now;const text=String(msg?.text||'').slice(0,120).trim();if(!text)return;this.chatOut(ent,text);scheduleBotReplies(this,ent,text)}
  handleInteract(socket){const ent=this.entOf(socket);if(!ent||ent.dead)return;const now=Date.now(),f=this.world.fountain;if(dist(ent,f)<100){if(now-ent.lastHealAt>4000){ent.lastHealAt=now;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});socket.emit('sys',{t:'Você recuperou suas forças na fonte da vila.'})}return}if(dist(ent,this.world.shopNpc)<100)socket.emit('shop',{open:true,gold:ent.gold,pot:ent.pot,price:POTION.price})}
  handleBuyPotion(socket){const ent=this.entOf(socket);if(!ent||dist(ent,this.world.shopNpc)>140)return;if(ent.pot>=POTION.max){socket.emit('sys',{t:'Você já está carregando poções demais.'});return}if(ent.gold<POTION.price){socket.emit('sys',{t:'Ryō insuficiente! Cace monstros para ganhar mais.'});return}ent.gold-=POTION.price;ent.pot++;socket.emit('shop',{open:true,gold:ent.gold,pot:ent.pot,price:POTION.price});socket.emit('sys',{t:'Poção comprada! Aperte Q para usar em combate.'})}
  tick(){const dt=.05,now=Date.now();this.tickCount++;this.updateMonsters(dt,now);this.updateProjectiles(dt);this.updateRegen(dt,now);for(const p of this.players.values())if(p.bot)p.bot.think(dt,now);this.updateBotLifecycle(now);this.sendSnapshots(now);if(now>this.lastTip){this.lastTip=now+90000+rnd()*60000;this.sys(TIPS[Math.floor(rnd()*TIPS.length)])}if(now-this.lastSave>30000){this.lastSave=now;for(const p of this.players.values())if(p.kind==='human')this.saved[p.name.toLowerCase()]={el:p.el,lv:p.lv,xp:p.xp,gold:p.gold,pot:p.pot};saveReal(this.saved)}}
- updateMonsters(dt,now){for(const m of this.monsters.values()){if(m.dead){if(now>=m.respawnAt){m.dead=false;m.hp=m.maxHp;m.aggroId=null;m.x=m.spawnX+(rnd()-.5)*60;m.y=m.spawnY+(rnd()-.5)*60;if(!walkable(this.world,m.x,m.y)){m.x=m.spawnX;m.y=m.spawnY}if(m.boss)this.sys('O Zetsu Ancião surgiu no Vale do Fim!')}continue}if(m.boss&&m.slamPending&&now>=m.slamPending.at){const sp=m.slamPending;m.slamPending=null;this.emitNear(sp.x,sp.y,1200,'fx',{k:'slam',x:sp.x,y:sp.y,r:135});for(const p of this.players.values())if(!p.dead&&dist(p,sp)<135)this.damagePlayer(p,m.atk*1.35,m)}let target=m.aggroId!=null?this.players.get(m.aggroId):undefined;if(target&&(target.dead||dist(target,m)>560||dist(target,{x:m.spawnX,y:m.spawnY})>640||zoneAt(this.world,target.x,target.y).safe)){m.aggroId=null;target=undefined}if(!m.aggroId){let best,bestD=Infinity;for(const p of this.players.values()){if(p.dead||zoneAt(this.world,p.x,p.y).safe||dist(p,{x:m.spawnX,y:m.spawnY})>460)continue;const d=dist(p,m);if(d<m.aggroR&&d<bestD){best=p;bestD=d}}if(best){m.aggroId=best.id;target=best}}if(target){const d=dist(target,m),reach=m.radius+14;if(d>reach)this.moveMonster(m,target.x,target.y,m.speed*dt);else if(now>=m.atkAt){m.atkAt=now+(m.boss?1500:1250);if(m.boss&&now>=m.slamAt){m.slamAt=now+7000;m.slamPending={x:target.x,y:target.y,at:now+950};this.emitNear(target.x,target.y,1200,'fx',{k:'slamwarn',x:target.x,y:target.y,r:135})}else{this.damagePlayer(target,m.atk*(.9+rnd()*.25),m);this.emitNear(target.x,target.y,900,'fx',{k:'mhit',x:target.x,y:target.y})}}}else{m.wanderT-=dt;if(m.wanderT<=0){m.wanderT=1.2+rnd()*3;m.wanderDir=rnd()*Math.PI*2;m.wanderMoving=rnd()<.55}const far=dist(m,{x:m.spawnX,y:m.spawnY});if(far>170)this.moveMonster(m,m.spawnX,m.spawnY,m.speed*.5*dt);else if(m.wanderMoving)this.moveMonster(m,m.x+Math.cos(m.wanderDir)*m.speed*.35*dt,m.y+Math.sin(m.wanderDir)*m.speed*.35*dt,m.speed*.35*dt)}}}
- moveMonster(m,tx,ty,step){const dx=tx-m.x,dy=ty-m.y,d=Math.hypot(dx,dy);if(d<.5)return;const sx=dx/d*step,sy=dy/d*step;if(Math.abs(dx)>Math.abs(dy))m.dir=dx>0?3:2;else m.dir=dy>0?0:1;if(walkable(this.world,m.x+sx,m.y+sy)){m.x+=sx;m.y+=sy}else if(walkable(this.world,m.x+sx,m.y))m.x+=sx;else if(walkable(this.world,m.x,m.y+sy))m.y+=sy}
- updateProjectiles(dt){for(const pr of[...this.projectiles.values()]){pr.x+=pr.vx*dt;pr.y+=pr.vy*dt;pr.ttl-=dt;let dead=pr.ttl<=0||!walkable(this.world,pr.x,pr.y);if(!dead){const owner=this.players.get(pr.owner);for(const m of this.monsters.values())if(!m.dead&&!pr.hitIds.has(m.id)&&dist(m,pr)<m.radius+pr.radius){pr.hitIds.add(m.id);if(owner)this.hitMonster(m,owner,pr.dmg,1);if(!pr.pierce){dead=true;break}}}if(dead)this.projectiles.delete(pr.id)}}
+ updateMonsters(dt,now){for(const m of this.monsters.values()){if(m.dead){if(now>=m.respawnAt){m.dead=false;m.hp=m.maxHp;m.aggroId=null;m.burnUntil=0;m.burnNextAt=0;m.burnDamage=0;m.burnOwnerId=null;m.slowUntil=0;m.stunUntil=0;m.x=m.spawnX+(rnd()-.5)*60;m.y=m.spawnY+(rnd()-.5)*60;if(!walkable(this.world,m.x,m.y)){m.x=m.spawnX;m.y=m.spawnY}if(m.boss)this.sys('O Zetsu Ancião surgiu no Vale do Fim!')}continue}
+if(m.burnUntil>now&&m.burnOwnerId!=null&&now>=m.burnNextAt){
+  m.burnNextAt=now+650;
+  const owner=this.players.get(m.burnOwnerId);
+  if(owner&&!owner.dead){
+    const burn=Math.max(1,Math.round(m.burnDamage));
+    m.hp-=burn;
+    this.emitNear(m.x,m.y,900,'dmg',{x:m.x+(rnd()-.5)*10,y:m.y-24,v:burn,c:0,tid:m.id});
+    if(m.hp<=0){this.killMonster(m,owner);continue}
+  }
+}
+if(now<m.stunUntil)continue;
+if(m.boss&&m.slamPending&&now>=m.slamPending.at){const sp=m.slamPending;m.slamPending=null;this.emitNear(sp.x,sp.y,1200,'fx',{k:'slam',x:sp.x,y:sp.y,r:135});for(const p of this.players.values())if(!p.dead&&dist(p,sp)<135)this.damagePlayer(p,m.atk*1.35,m)}let target=m.aggroId!=null?this.players.get(m.aggroId):undefined;if(target&&(target.dead||dist(target,m)>560||dist(target,{x:m.spawnX,y:m.spawnY})>640||zoneAt(this.world,target.x,target.y).safe)){m.aggroId=null;target=undefined}if(!m.aggroId){let best,bestD=Infinity;for(const p of this.players.values()){if(p.dead||zoneAt(this.world,p.x,p.y).safe||dist(p,{x:m.spawnX,y:m.spawnY})>460)continue;const d=dist(p,m);if(d<m.aggroR&&d<bestD){best=p;bestD=d}}if(best){m.aggroId=best.id;target=best}}if(target){const d=dist(target,m),reach=m.radius+14;if(d>reach)this.moveMonster(m,target.x,target.y,m.speed*dt);else if(now>=m.atkAt){m.atkAt=now+(m.boss?1500:1250);if(m.boss&&now>=m.slamAt){m.slamAt=now+7000;m.slamPending={x:target.x,y:target.y,at:now+950};this.emitNear(target.x,target.y,1200,'fx',{k:'slamwarn',x:target.x,y:target.y,r:135})}else{this.damagePlayer(target,m.atk*(.9+rnd()*.25),m);this.emitNear(target.x,target.y,900,'fx',{k:'mhit',x:target.x,y:target.y})}}}else{m.wanderT-=dt;if(m.wanderT<=0){m.wanderT=1.2+rnd()*3;m.wanderDir=rnd()*Math.PI*2;m.wanderMoving=rnd()<.55}const far=dist(m,{x:m.spawnX,y:m.spawnY});if(far>170)this.moveMonster(m,m.spawnX,m.spawnY,m.speed*.5*dt);else if(m.wanderMoving)this.moveMonster(m,m.x+Math.cos(m.wanderDir)*m.speed*.35*dt,m.y+Math.sin(m.wanderDir)*m.speed*.35*dt,m.speed*.35*dt)}}}
+ moveMonster(m,tx,ty,step){
+   if(Date.now()<m.slowUntil)step*=.52;
+   const dx=tx-m.x,dy=ty-m.y,d=Math.hypot(dx,dy);
+   if(d<.5)return;
+   const sx=dx/d*step,sy=dy/d*step;
+   if(Math.abs(dx)>Math.abs(dy))m.dir=dx>0?3:2;else m.dir=dy>0?0:1;
+   if(walkable(this.world,m.x+sx,m.y+sy)){m.x+=sx;m.y+=sy}
+   else if(walkable(this.world,m.x+sx,m.y))m.x+=sx;
+   else if(walkable(this.world,m.x,m.y+sy))m.y+=sy;
+ }
+ updateProjectiles(dt){for(const pr of[...this.projectiles.values()]){pr.x+=pr.vx*dt;pr.y+=pr.vy*dt;pr.ttl-=dt;let dead=pr.ttl<=0||!walkable(this.world,pr.x,pr.y);if(!dead){const owner=this.players.get(pr.owner);for(const m of this.monsters.values())if(!m.dead&&!pr.hitIds.has(m.id)&&dist(m,pr)<m.radius+pr.radius){pr.hitIds.add(m.id);if(owner)this.hitMonster(m,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}}if(dead)this.projectiles.delete(pr.id)}}
  updateRegen(dt,now){for(const p of this.players.values()){const maxCh=maxChOf(p.lv),maxHp=maxHpOf(p.lv);if(!p.dead){p.ch=Math.min(maxCh,p.ch+5.5*dt);if(now-p.lastCombatAt>6000)p.hp=Math.min(maxHp,p.hp+2.2*dt)}}}
  updateBotLifecycle(now){if(now<this.lastLifecycle)return;this.lastLifecycle=now+25000;const bots=[...this.players.values()].filter(p=>p.kind==='bot');if(bots.length>BOT_TARGET-4&&rnd()<.55){const b=bots[Math.floor(rnd()*bots.length)];if(b&&!b.bot?.inCombat()){if(rnd()<.45)b.bot?.sayFarewell();this.players.delete(b.id);this.forgetEntity(b.id);this.broadcast('pLeave',{id:b.id});this.sys(`${b.name} saiu do jogo.`)}}else if(bots.length<BOT_TARGET+3&&rnd()<.6){const b=this.addBot();if(b){this.broadcast('pJoin',{id:b.id,n:b.name,lv:b.lv,el:b.el,pal:b.pal});this.sys(`${b.name} entrou no jogo.`);if(rnd()<.5)b.bot?.sayJoin()}}}
- sendSnapshots(now){const view=1080;for(const h of this.players.values()){if(h.kind!=='human'||!h.socket)continue;const p=[],m=[],pr=[],nf=[],known=h.known;for(const e of this.players.values()){if(e.dead||Math.abs(e.x-h.x)>view||Math.abs(e.y-h.y)>view)continue;p.push([e.id,Math.round(e.x),Math.round(e.y),e.dir,Math.round(e.hp)]);if(!known.has(e.id))nf.push({k:'p',id:e.id,n:e.name,lv:e.lv,el:e.el,pal:e.pal});known.set(e.id,now)}for(const mo of this.monsters.values()){if(mo.dead||Math.abs(mo.x-h.x)>view||Math.abs(mo.y-h.y)>view)continue;m.push([mo.id,Math.round(mo.x),Math.round(mo.y),mo.dir,Math.round(mo.hp/mo.maxHp*100)]);if(!known.has(mo.id))nf.push({k:'m',id:mo.id,t:mo.t,n:mo.name,lv:mo.lv});known.set(mo.id,now)}for(const q of this.projectiles.values()){if(Math.abs(q.x-h.x)<=1400&&Math.abs(q.y-h.y)<=1400)pr.push([q.id,Math.round(q.x),Math.round(q.y),Math.round(q.vx),Math.round(q.vy),q.k])}h.socket.emit('snapshot',{t:now,p,m,pr,nf,you:{hp:Math.round(h.hp),mh:maxHpOf(h.lv),ch:Math.round(h.ch),mc:maxChOf(h.lv),xp:Math.round(h.xp),need:xpNeedOf(h.lv),lvl:h.lv,gold:h.gold,pot:h.pot,cds:h.cds.map(c=>Math.max(0,c-now)),mi:h.mi,mp:h.mp,dm:h.dead?1:0}})}if(this.tickCount%100===0)for(const h of this.players.values())if(h.kind==='human')for(const[id,seen]of[...h.known])if(now-seen>30000)h.known.delete(id)}
+ sendSnapshots(now){
+   const view=1080,metaRefresh=4000;
+   for(const h of this.players.values()){
+     if(h.kind!=='human'||!h.socket)continue;
+     const p=[],m=[],pr=[],nf=[],known=h.known,visible=new Set();
+
+     for(const e of this.players.values()){
+       if(e.dead||Math.abs(e.x-h.x)>view||Math.abs(e.y-h.y)>view)continue;
+       visible.add(e.id);
+       p.push([e.id,Math.round(e.x),Math.round(e.y),e.dir,Math.round(e.hp),e.lv]);
+       const lastMeta=known.get(e.id)||0;
+       if(now-lastMeta>=metaRefresh){
+         nf.push({k:'p',id:e.id,n:e.name,lv:e.lv,el:e.el,pal:e.pal});
+         known.set(e.id,now);
+       }
+     }
+
+     for(const mo of this.monsters.values()){
+       if(mo.dead||Math.abs(mo.x-h.x)>view||Math.abs(mo.y-h.y)>view)continue;
+       visible.add(mo.id);
+       m.push([mo.id,Math.round(mo.x),Math.round(mo.y),mo.dir,Math.round(mo.hp/mo.maxHp*100)]);
+       const lastMeta=known.get(mo.id)||0;
+       if(now-lastMeta>=metaRefresh){
+         nf.push({k:'m',id:mo.id,t:mo.t,n:mo.name,lv:mo.lv});
+         known.set(mo.id,now);
+       }
+     }
+
+     // Ao sair da área de interesse, esquece imediatamente. Ao voltar,
+     // o cliente recebe novamente os metadados necessários para renderizar.
+     for(const id of [...known.keys()])if(!visible.has(id))known.delete(id);
+
+     for(const q of this.projectiles.values()){
+       if(Math.abs(q.x-h.x)<=1400&&Math.abs(q.y-h.y)<=1400)
+         pr.push([q.id,Math.round(q.x),Math.round(q.y),Math.round(q.vx),Math.round(q.vy),q.k]);
+     }
+
+     h.socket.emit('snapshot',{t:now,p,m,pr,nf,you:{
+       hp:Math.round(h.hp),mh:maxHpOf(h.lv),ch:Math.round(h.ch),mc:maxChOf(h.lv),
+       xp:Math.round(h.xp),need:xpNeedOf(h.lv),lvl:h.lv,gold:h.gold,pot:h.pot,
+       cds:h.cds.map(c=>Math.max(0,c-now)),mi:h.mi,mp:h.mp,dm:h.dead?1:0
+     }});
+   }
+ }
+
 }
