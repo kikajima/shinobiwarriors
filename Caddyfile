@@ -1,23 +1,12 @@
 :81 {
-	@transform_port_query {
-		query XTransformPort=*
+	# Socket.IO do game server. Caddy encaminha HTTP polling e WebSocket
+	# automaticamente para o serviço Bun na porta 3003.
+	handle /socket.io/* {
+		reverse_proxy 127.0.0.1:3003
 	}
 
-	handle @transform_port_query {
-		reverse_proxy localhost:{query.XTransformPort} {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-		}
-	}
-
+	# Todo o restante pertence ao frontend Next.js.
 	handle {
-		reverse_proxy localhost:3000 {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-		}
+		reverse_proxy 127.0.0.1:3000
 	}
 }
