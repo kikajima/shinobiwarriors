@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use client';
 import { net } from './net';
 import { audio } from './audio';
@@ -9,12 +10,26 @@ const PLAYER_SPEED = 175;
 const BASIC_CD = 550;
 const POTION_CD = 9000;
 const VIEW_RADIUS = 1080;
+export interface HudState {
+    hp: number; mh: number; ch: number; mc: number; xp: number; need: number;
+    lvl: number; gold: number; pot: number;
+    cds: Array<{ left: number; total: number }>;
+    zoneName: string; safe: boolean;
+    mission: { name: string; need: number; prog: number } | null;
+    dead: boolean;
+    boss: { n: string; pct: number } | null;
+    target: { n: string; lv: number; pct: number } | null;
+    interact: 'fonte' | 'loja' | null;
+    fps: number;
+    selfMoving: boolean;
+}
 const OBJ_FOOTPRINT = {
     tree: [1, 1], tree2: [1, 1], deadtree: [1, 1], rock: [1, 1],
     fence: [1, 1], post: [1, 1], lantern: [1, 1], sign: [1, 1],
     house: [3, 2], shop: [3, 2], fountain: [2, 2],
 };
 export class GameEngine {
+    [key: string]: any;
     constructor(canvas, welcome, input) {
         this.objRender = [];
         this.minimapBase = null;
