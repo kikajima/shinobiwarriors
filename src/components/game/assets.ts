@@ -6,7 +6,11 @@ import {
   OBJECT_ATLAS_URL,
   OBJECT_FRAMES,
   PLAYER_FIRE_ATLAS_URL,
-  PLAYER_FIRE_FRAMES,
+  PLAYER_WATER_ATLAS_URL,
+  PLAYER_LIGHTNING_ATLAS_URL,
+  PLAYER_WIND_ATLAS_URL,
+  PLAYER_EARTH_ATLAS_URL,
+  PLAYER_FRAMES,
   TERRAIN_ATLAS_URL,
   TERRAIN_FRAMES,
   type AtlasFrame,
@@ -124,15 +128,30 @@ export function makePlayerVariant(
   return frames.map((direction) => direction.map((frame) => recolorFrame(frame, pal)))
 }
 
+async function loadOptionalPlayerAtlas(
+  element: ElementId,
+  url: string,
+): Promise<[ElementId, HTMLImageElement | null]> {
+  try {
+    return [element, await loadImage(url)]
+  } catch (error) {
+    console.warn(`[art] player ${element} GBA indisponível; usando sprite procedural.`, error)
+    return [element, null]
+  }
+}
+
 async function loadAtlasArt(): Promise<GameArt> {
   const [terrainAtlas, objectAtlas] = await Promise.all([
     loadImage(TERRAIN_ATLAS_URL),
     loadImage(OBJECT_ATLAS_URL),
   ])
-  const firePlayerAtlas = await loadImage(PLAYER_FIRE_ATLAS_URL).catch((error) => {
-    console.warn('[art] player Fogo GBA indisponível; usando sprite procedural.', error)
-    return null
-  })
+  const playerAtlases = await Promise.all([
+    loadOptionalPlayerAtlas('fogo', PLAYER_FIRE_ATLAS_URL),
+    loadOptionalPlayerAtlas('agua', PLAYER_WATER_ATLAS_URL),
+    loadOptionalPlayerAtlas('raio', PLAYER_LIGHTNING_ATLAS_URL),
+    loadOptionalPlayerAtlas('vento', PLAYER_WIND_ATLAS_URL),
+    loadOptionalPlayerAtlas('terra', PLAYER_EARTH_ATLAS_URL),
+  ])
 
   const tiles: Record<string, HTMLCanvasElement[]> = {}
   for (const [key, frames] of Object.entries(TERRAIN_FRAMES)) {
@@ -145,9 +164,10 @@ async function loadAtlasArt(): Promise<GameArt> {
   }
 
   const players: Partial<Record<ElementId, HTMLCanvasElement[][]>> = {}
-  if (firePlayerAtlas) {
-    players.fogo = PLAYER_FIRE_FRAMES.map((direction) =>
-      direction.map((frame) => cropFrame(firePlayerAtlas, frame)),
+  for (const [element, atlas] of playerAtlases) {
+    if (!atlas) continue
+    players[element] = PLAYER_FRAMES.map((direction) =>
+      direction.map((frame) => cropFrame(atlas, frame)),
     )
   }
 

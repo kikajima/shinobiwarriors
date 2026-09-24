@@ -6,6 +6,10 @@ const expected = [
   ['public/game/gba/terrain.png', 256, 128],
   ['public/game/gba/objects.png', 512, 256],
   ['public/game/gba/player-fire.png', 96, 160],
+  ['public/game/gba/player-water.png', 96, 160],
+  ['public/game/gba/player-lightning.png', 96, 160],
+  ['public/game/gba/player-wind.png', 96, 160],
+  ['public/game/gba/player-earth.png', 96, 160],
 ]
 
 for (const [file, width, height] of expected) {
@@ -41,10 +45,19 @@ for (const cell of used) {
 console.log(`[art] OK ${used.length} referências de terreno apontam apenas para células catalogadas`)
 
 
-const fireBytes = readFileSync('public/game/gba/player-fire.png')
-const fireSha256 = createHash('sha256').update(fireBytes).digest('hex')
-const expectedFireSha256 = 'f72037bbe79bc21ce835709096b355c381ff39f39b9cd61d27746eb131c55885'
-if (fireSha256 !== expectedFireSha256) {
-  throw new Error(`player-fire.png hash inválido: ${fireSha256}`)
+const playerHashes = {
+  'public/game/gba/player-fire.png': 'f72037bbe79bc21ce835709096b355c381ff39f39b9cd61d27746eb131c55885',
+  'public/game/gba/player-water.png': 'a0d469f9eaf4f5c4b79759bb08cbc78ccd803f65cd4a32644c1b5d20c469ef9c',
+  'public/game/gba/player-lightning.png': '8aaef7d5fb8bbf075d4419ac711a4ef1da31ee51929cde85e36dbce7ce060380',
+  'public/game/gba/player-wind.png': 'f075db39079a9d14e7acd3249cea40e87dd68fd96e8aba250e04cfe7c35129e0',
+  'public/game/gba/player-earth.png': '150023113873560ac9ac109c30b7fa52d8f92c968a3773e5ed1c01c66092213b',
 }
-console.log('[art] OK player-fire.png hash')
+
+for (const [file, expectedHash] of Object.entries(playerHashes)) {
+  const bytes = readFileSync(file)
+  const actualHash = createHash('sha256').update(bytes).digest('hex')
+  if (actualHash !== expectedHash) {
+    throw new Error(`${file} hash inválido: ${actualHash}`)
+  }
+  console.log(`[art] OK ${file} hash`)
+}
