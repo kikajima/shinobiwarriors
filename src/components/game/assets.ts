@@ -11,7 +11,6 @@ import {
   PLAYER_WIND_ATLAS_URL,
   PLAYER_EARTH_ATLAS_URL,
   PLAYER_FRAMES,
-  PLAYER_FIRE_ANIM_FRAMES,
   type PlayerAnimName,
   TERRAIN_ATLAS_URL,
   TERRAIN_FRAMES,
@@ -70,6 +69,108 @@ function cropMatrix(
   frames: AtlasFrame[][],
 ): HTMLCanvasElement[][] {
   return frames.map((direction) => direction.map((frame) => cropFrame(source, frame)))
+}
+
+function cloneFrame(source: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = source.width
+  canvas.height = source.height
+  const ctx = canvas.getContext('2d')!
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(source, 0, 0)
+  return canvas
+}
+
+function shiftedFrame(source: HTMLCanvasElement, dx: number, dy: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = source.width
+  canvas.height = source.height
+  const ctx = canvas.getContext('2d')!
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(source, dx * PIX_SCALE, dy * PIX_SCALE)
+  return canvas
+}
+
+function fireAttackFrame(source: HTMLCanvasElement, dir: number, phase: number): HTMLCanvasElement {
+  const dirs = [[0,1],[0,-1],[-1,0],[1,0]] as const
+  const [dx,dy] = dirs[dir] || dirs[0]
+  const canvas = phase === 1 ? shiftedFrame(source, dx, dy) : cloneFrame(source)
+  const ctx = canvas.getContext('2d')!
+  const S = PIX_SCALE
+  ctx.imageSmoothingEnabled = false
+  ctx.lineCap = 'square'
+  ctx.lineJoin = 'miter'
+
+  const lines = [
+    [[18,25],[20,30],[19,34]],
+    [[14,17],[12,12],[13,8]],
+    [[10,22],[5,21],[2,19]],
+    [[22,22],[27,21],[30,19]],
+  ] as const
+  const trails = [
+    [[17,25],[23,29]], [[10,16],[16,10]], [[9,18],[2,23]], [[23,18],[30,23]],
+  ] as const
+  const pts = lines[dir] || lines[0]
+  ctx.strokeStyle = '#eeb577'
+  ctx.lineWidth = 2*S
+  ctx.beginPath(); ctx.moveTo(pts[0][0]*S,pts[0][1]*S)
+  ctx.lineTo(pts[1][0]*S,pts[1][1]*S); ctx.lineTo(pts[2][0]*S,pts[2][1]*S); ctx.stroke()
+  ctx.strokeStyle = '#d6dadc'; ctx.lineWidth = S
+  ctx.beginPath(); ctx.moveTo(pts[1][0]*S,pts[1][1]*S); ctx.lineTo(pts[2][0]*S,pts[2][1]*S); ctx.stroke()
+  if (phase === 1) {
+    const tr = trails[dir] || trails[0]
+    ctx.strokeStyle = '#ffd169'; ctx.lineWidth = 2*S
+    ctx.beginPath(); ctx.moveTo(tr[0][0]*S,tr[0][1]*S); ctx.lineTo(tr[1][0]*S,tr[1][1]*S); ctx.stroke()
+  }
+  return canvas
+}
+
+function fireCastFrame(source: HTMLCanvasElement, dir: number, phase: number): HTMLCanvasElement {
+  const canvas = cloneFrame(source)
+  const ctx = canvas.getContext('2d')!
+  const S = PIX_SCALE
+  const hands = [[[13,24],[18,24]],[[13,20],[18,20]],[[11,22],[13,23]],[[20,22],[18,23]]] as const
+  const pair = hands[dir] || hands[0]
+  if (phase === 0) {
+    ctx.fillStyle='#eeb577'
+    for(const [x,y] of pair) ctx.fillRect((x-1)*S,(y-1)*S,3*S,3*S)
+  } else {
+    const cx=Math.round((pair[0][0]+pair[1][0])/2),cy=Math.round((pair[0][1]+pair[1][1])/2)
+    ctx.fillStyle=phase===1?'#ff751a':'#ffad37'
+    ctx.fillRect((cx-2)*S,(cy-2)*S,5*S,5*S)
+    ctx.fillStyle='#ffefa0';ctx.fillRect(cx*S,cy*S,S,S)
+    if(phase===2){
+      ctx.fillStyle='#ff751a'
+      if(dir===2)ctx.fillRect(4*S,18*S,8*S,2*S)
+      else if(dir===3)ctx.fillRect(21*S,18*S,8*S,2*S)
+      else ctx.fillRect(15*S,(dir===1?7:12)*S,2*S,7*S)
+    }
+  }
+  return canvas
+}
+
+function fireHurtFrame(source: HTMLCanvasElement, dir: number, phase: number): HTMLCanvasElement {
+  const recoil = [[0,-1],[0,1],[1,0],[-1,0]] as const
+  const [dx,dy]=recoil[dir]||recoil[0]
+  const canvas=shiftedFrame(source,dx*(phase===1?2:1),dy*(phase===1?2:1))
+  const ctx=canvas.getContext('2d')!,S=PIX_SCALE
+  ctx.globalCompositeOperation='source-atop'
+  ctx.fillStyle=phase===1?'rgba(255,80,55,.48)':'rgba(255,145,90,.22)'
+  ctx.fillRect(0,0,canvas.width,canvas.height)
+  ctx.globalCompositeOperation='source-over'
+  if(phase===1){
+    ctx.fillStyle='#fff0b8'
+    const sparks=[[[16,8],[13,6],[19,6]],[[16,32],[13,34],[19,34]],[[26,20],[29,17],[29,23]],[[6,20],[3,17],[3,23]]] as const
+    for(const [x,y] of sparks[dir]||sparks[0])ctx.fillRect(x*S,y*S,S,S)
+  }
+  return canvas
+}
+
+function buildFireCombatSet(move: HTMLCanvasElement[][]): PlayerSpriteSet {
+  const attack=move.map((direction,dir)=>[0,1,2].map((phase)=>fireAttackFrame(direction[phase===1?1:0],dir,phase)))
+  const cast=move.map((direction,dir)=>[0,1,2].map((phase)=>fireCastFrame(direction[0],dir,phase)))
+  const hurt=move.map((direction,dir)=>[0,1,2].map((phase)=>fireHurtFrame(direction[0],dir,phase)))
+  return { move, attack, cast, hurt }
 }
 
 const BASE_HAIR = [
@@ -184,16 +285,8 @@ async function loadAtlasArt(): Promise<GameArt> {
   const players: Partial<Record<ElementId, PlayerSpriteSet>> = {}
   for (const [element, atlas] of playerAtlases) {
     if (!atlas) continue
-    if (element === 'fogo') {
-      players.fogo = {
-        move: cropMatrix(atlas, PLAYER_FIRE_ANIM_FRAMES.move),
-        attack: cropMatrix(atlas, PLAYER_FIRE_ANIM_FRAMES.attack),
-        cast: cropMatrix(atlas, PLAYER_FIRE_ANIM_FRAMES.cast),
-        hurt: cropMatrix(atlas, PLAYER_FIRE_ANIM_FRAMES.hurt),
-      }
-    } else {
-      players[element] = { move: cropMatrix(atlas, PLAYER_FRAMES) }
-    }
+    const move = cropMatrix(atlas, PLAYER_FRAMES)
+    players[element] = element === 'fogo' ? buildFireCombatSet(move) : { move }
   }
 
   return { tiles, objects, players, source: 'gba-atlas' }
