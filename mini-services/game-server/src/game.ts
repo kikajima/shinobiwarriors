@@ -1,5 +1,5 @@
-import { BASIC, CRIT_CHANCE, CRIT_MULT, MAX_LEVEL, MONSTERS, MISSIONS, BOT_NAMES, POTION, PLAYER_SPEED, SKILLS, TIPS, VILLAGE_IDS, maxChOf, maxHpOf, atkOf, xpNeedOf, } from './data';
-import { genWorld, walkable, zoneAt, VILLAGE_SPAWNS } from './world';
+import { BASIC, CRIT_CHANCE, CRIT_MULT, MAX_LEVEL, MONSTERS, MISSIONS, BOT_NAMES, POTION, PLAYER_SPEED, SKILLS, TIPS, VILLAGE_IDS, VILLAGE_NAMES, maxChOf, maxHpOf, atkOf, xpNeedOf, } from './data';
+import { DESTRUCTIBLE_HP, destroyWorldObject, genWorld, walkable, zoneAt, VILLAGE_SPAWNS } from './world';
 import { BotBrain, botGreetHuman, scheduleBotReplies, BOT_TARGET } from './bots';
 import { loadSave, saveReal } from './persist';
 const EL_LIST = ['fogo', 'agua', 'raio', 'vento', 'terra'];
@@ -10,8 +10,9 @@ const isFiniteNumber = value => typeof value === 'number' && Number.isFinite(val
 const dir8 = (dx, dy) => { const oct=(Math.round(Math.atan2(dy,dx)/(Math.PI/4))+8)%8; return (oct+6)%8; };
 const PVP_DAMAGE_SCALE = 0.65;
 const PLAYER_HIT_RADIUS = 14;
+const PVP_REWARD_COOLDOWN = 3 * 60 * 1000;
 export class Game {
- constructor(io){this.world=genWorld();this.players=new Map();this.monsters=new Map();this.projectiles=new Map();this.nextId=1;this.saved={};this.tickCount=0;this.lastSave=0;this.lastTip=Date.now()+60000;this.lastLifecycle=Date.now()+20000;this.io=io;this.saved=loadSave();this.spawnMonsters();this.spawnInitialBots()}
+ constructor(io){this.world=genWorld();this.players=new Map();this.monsters=new Map();this.projectiles=new Map();this.pvpRewardAt=new Map();this.nextId=1;this.saved={};this.tickCount=0;this.lastSave=0;this.lastTip=Date.now()+60000;this.lastLifecycle=Date.now()+20000;this.io=io;this.saved=loadSave();this.spawnMonsters();this.spawnInitialBots()}
  onlineCount(){return this.players.size}
  canStand(x,y){return walkable(this.world,x-7,y-2)&&walkable(this.world,x+7,y-2)&&walkable(this.world,x-7,y+11)&&walkable(this.world,x+7,y+11)&&walkable(this.world,x,y+5)}
  findWalkableNear(x,y,radius=100){
@@ -73,6 +74,44 @@ export class Game {
    if(attacker.village===target.village)return false;
    return !zoneAt(this.world,attacker.x,attacker.y).safe&&!zoneAt(this.world,target.x,target.y).safe;
  }
+ pvpXpReward(killer,victim,now=Date.now()){
+   if(!killer||!victim||killer.village===victim.village||killer.lv>=MAX_LEVEL)return 0;
+   const key=`${killer.name.toLowerCase()}>${victim.name.toLowerCase()}`,last=this.pvpRewardAt.get(key)||0;
+   if(now-last<PVP_REWARD_COOLDOWN)return 0;
+   this.pvpRewardAt.set(key,now);
+   const levelFactor=Math.max(.5,Math.min(1.25,(victim.lv+4)/(killer.lv+4)));
+   return Math.max(10,Math.round((25+victim.lv*8)*levelFactor));
+ }
+ destructibleAt(x,y,radius=18){
+   let best=null,bestD=Infinity;
+   for(const o of this.world.objects){
+     if(!DESTRUCTIBLE_HP[o.k]||!Number.isFinite(o.hp)||o.hp<=0)continue;
+     const cx=(o.x+.5)*32,cy=(o.y+.5)*32,d=Math.hypot(cx-x,cy-y);
+     if(d<=radius+18&&d<bestD){best=o;bestD=d}
+   }
+   return best;
+ }
+ hitWorldObject(obj,base,attacker){
+   if(!obj||!DESTRUCTIBLE_HP[obj.k]||!Number.isFinite(obj.hp)||obj.hp<=0)return false;
+   const dmg=Math.max(1,Math.round(base*(.9+rnd()*.2))),cx=(obj.x+.5)*32,cy=(obj.y+.5)*32;
+   obj.hp-=dmg;
+   this.emitNear(cx,cy,900,'fx',{k:'objhit',sid:attacker?.id,el:attacker?.el||'terra',x:cx,y:cy});
+   if(obj.hp<=0){
+     const gone=destroyWorldObject(this.world,obj.id);
+     if(gone){
+       this.broadcast('objDestroy',{id:gone.id,k:gone.k,x:gone.x,y:gone.y});
+       this.emitNear(cx,cy,1000,'fx',{k:'objbreak',sid:attacker?.id,el:attacker?.el||'terra',x:cx,y:cy});
+     }
+   }
+   return true;
+ }
+ damageWorldRadius(x,y,radius,base,attacker){
+   for(const o of [...this.world.objects]){
+     if(!DESTRUCTIBLE_HP[o.k]||!Number.isFinite(o.hp)||o.hp<=0)continue;
+     const cx=(o.x+.5)*32,cy=(o.y+.5)*32;
+     if(Math.hypot(cx-x,cy-y)<=radius+18)this.hitWorldObject(o,base,attacker);
+   }
+ }
  hitPlayer(target,attacker,base,mult=1,elemental=false){
    if(!this.canPvp(attacker,target))return false;
    const now=Date.now(),lightningBonus=(elemental&&attacker.el==='raio')?0.12:0,crit=rnd()<CRIT_CHANCE+lightningBonus;
@@ -88,9 +127,12 @@ export class Game {
  }
  killPlayerPvp(victim,killer){
    victim.hp=0;victim.dead=true;this.forgetEntity(victim.id);
+   const xp=this.pvpXpReward(killer,victim);
+   if(xp>0)this.gainXp(killer,xp);
    this.emitNear(victim.x,victim.y,1000,'fx',{k:'pdeath',x:victim.x,y:victim.y});
-   this.broadcast('kill',{k:killer.name,klv:killer.lv,v:victim.name,mlv:victim.lv,g:0,xp:0,pvp:1});
-   this.sys(`${killer.name} derrotou ${victim.name} em PvP!`);
+   this.broadcast('kill',{k:killer.name,klv:killer.lv,v:victim.name,mlv:victim.lv,g:0,xp,pvp:1});
+   const reward=xp>0?` +${xp} XP`:' (sem XP: abate repetido)';
+   this.sys(`${killer.name} [${VILLAGE_NAMES[killer.village]}] derrotou ${victim.name} [${VILLAGE_NAMES[victim.village]}] em PvP!${reward}`);
    if(victim.kind==='human')victim.socket?.emit('dead',{by:killer.name});
    else victim.bot?.onDeath(killer);
  }
@@ -116,7 +158,7 @@ export class Game {
    if(Number.isInteger(msg.dir)&&msg.dir>=0&&msg.dir<=7)ent.dir=msg.dir;
  }
  basicAttack(ent,tx,ty){if(ent.dead)return;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const now=Date.now();if(now<ent.cds[0])return;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy);if(d<1){dx=0;dy=1}const ang=Math.atan2(dy,dx);ent.cds[0]=now+BASIC.cd;ent.lastCombatAt=now;this.emitNear(ent.x,ent.y,900,'fx',{k:'slash',sid:ent.id,x:ent.x,y:ent.y,tx,ty});for(const m of this.monsters.values()){if(m.dead)continue;const md=dist(m,ent);if(md>BASIC.range+m.radius)continue;const mang=Math.atan2(m.y-ent.y,m.x-ent.x);let diff=Math.abs(mang-ang);if(diff>Math.PI)diff=Math.PI*2-diff;if(diff<BASIC.arc*Math.PI/180)this.hitMonster(m,ent,atkOf(ent.lv),1)}for(const p of this.players.values()){if(!this.canPvp(ent,p))continue;const pd=dist(p,ent);if(pd>BASIC.range+PLAYER_HIT_RADIUS)continue;const pang=Math.atan2(p.y-ent.y,p.x-ent.x);let diff=Math.abs(pang-ang);if(diff>Math.PI)diff=Math.PI*2-diff;if(diff<BASIC.arc*Math.PI/180)this.hitPlayer(p,ent,atkOf(ent.lv),1,false)}}
- castSkill(ent,idx,tx,ty){if(ent.dead||idx<0||idx>3)return false;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const s=SKILLS[ent.el][idx],now=Date.now();if(now<ent.cds[1+idx]||ent.ch<s.ch)return false;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy)||1,nx=dx/d,ny=dy/d;ent.dir=dir8(nx,ny);ent.cds[1+idx]=now+s.cd;ent.ch-=s.ch;ent.lastCombatAt=now;const el=ent.el;switch(s.archetype){case'proj':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,false,10,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'multi':{const count=Math.max(1,s.count||3),mid=(count-1)/2;for(let i=0;i<count;i++){const a=Math.atan2(ny,nx)+(i-mid)*.18;this.spawnProjectile(ent,idx,Math.cos(a),Math.sin(a),s.speed,s.mult,false,9,s.range)}this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;}case'line':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,true,15,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'dash':{const want=Math.min(s.range,d);let moved=0;const hitSet=new Set();while(moved<want){const step=Math.min(13,want-moved),nxp=ent.x+nx*step,nyp=ent.y+ny*step;if(!walkable(this.world,nxp,nyp))break;ent.x=nxp;ent.y=nyp;moved+=step;for(const m of this.monsters.values())if(!m.dead&&!hitSet.has(m.id)&&dist(m,ent)<46+m.radius){hitSet.add(m.id);this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true)}for(const p of this.players.values())if(this.canPvp(ent,p)&&!hitSet.has(p.id)&&dist(p,ent)<46+PLAYER_HIT_RADIUS){hitSet.add(p.id);this.hitPlayer(p,ent,atkOf(ent.lv),s.mult,true)}}this.emitNear(ent.x,ent.y,1100,'fx',{k:'dash',sid:ent.id,el,x:ent.x,y:ent.y,tx:ent.x+nx*60,ty:ent.y+ny*60});break}case'aoe':{const cd=Math.min(s.range,d),cx=ent.x+nx*cd,cy=ent.y+ny*cd;this.emitNear(cx,cy,1100,'fx',{k:'aoe',sid:ent.id,el,x:cx,y:cy,r:s.radius});for(const m of this.monsters.values())if(!m.dead&&dist(m,{x:cx,y:cy})<s.radius+m.radius)this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true);for(const p of this.players.values())if(this.canPvp(ent,p)&&dist(p,{x:cx,y:cy})<s.radius+PLAYER_HIT_RADIUS)this.hitPlayer(p,ent,atkOf(ent.lv),s.mult,true);break}}return true}
+ castSkill(ent,idx,tx,ty){if(ent.dead||idx<0||idx>3)return false;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const s=SKILLS[ent.el][idx],now=Date.now();if(now<ent.cds[1+idx]||ent.ch<s.ch)return false;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy)||1,nx=dx/d,ny=dy/d;ent.dir=dir8(nx,ny);ent.cds[1+idx]=now+s.cd;ent.ch-=s.ch;ent.lastCombatAt=now;const el=ent.el;switch(s.archetype){case'proj':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,false,10,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'multi':{const count=Math.max(1,s.count||3),mid=(count-1)/2;for(let i=0;i<count;i++){const a=Math.atan2(ny,nx)+(i-mid)*.18;this.spawnProjectile(ent,idx,Math.cos(a),Math.sin(a),s.speed,s.mult,false,9,s.range)}this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;}case'line':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,true,15,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'dash':{const want=Math.min(s.range,d);let moved=0;const hitSet=new Set();while(moved<want){const step=Math.min(13,want-moved),nxp=ent.x+nx*step,nyp=ent.y+ny*step;if(!walkable(this.world,nxp,nyp)){const obj=this.destructibleAt(nxp,nyp,22);if(obj)this.hitWorldObject(obj,atkOf(ent.lv)*s.mult*1.15,ent);if(!walkable(this.world,nxp,nyp))break}ent.x=nxp;ent.y=nyp;moved+=step;for(const m of this.monsters.values())if(!m.dead&&!hitSet.has(m.id)&&dist(m,ent)<46+m.radius){hitSet.add(m.id);this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true)}for(const p of this.players.values())if(this.canPvp(ent,p)&&!hitSet.has(p.id)&&dist(p,ent)<46+PLAYER_HIT_RADIUS){hitSet.add(p.id);this.hitPlayer(p,ent,atkOf(ent.lv),s.mult,true)}}this.emitNear(ent.x,ent.y,1100,'fx',{k:'dash',sid:ent.id,el,x:ent.x,y:ent.y,tx:ent.x+nx*60,ty:ent.y+ny*60});break}case'aoe':{const cd=Math.min(s.range,d),cx=ent.x+nx*cd,cy=ent.y+ny*cd;this.emitNear(cx,cy,1100,'fx',{k:'aoe',sid:ent.id,el,x:cx,y:cy,r:s.radius});this.damageWorldRadius(cx,cy,s.radius,atkOf(ent.lv)*s.mult,ent);for(const m of this.monsters.values())if(!m.dead&&dist(m,{x:cx,y:cy})<s.radius+m.radius)this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true);for(const p of this.players.values())if(this.canPvp(ent,p)&&dist(p,{x:cx,y:cy})<s.radius+PLAYER_HIT_RADIUS)this.hitPlayer(p,ent,atkOf(ent.lv),s.mult,true);break}}return true}
  spawnProjectile(ent,idx,nx,ny,speed,mult,pierce,radius,range){const id=this.nextId++;this.projectiles.set(id,{id,owner:ent.id,x:ent.x+nx*22,y:ent.y+ny*22-6,vx:nx*speed,vy:ny*speed,k:EL_LIST.indexOf(ent.el)*4+idx,dmg:atkOf(ent.lv)*mult,pierce,radius,ttl:range/speed,hitIds:new Set()})}
  hitMonster(m,attacker,base,mult,elemental=false){
    const now=Date.now();
@@ -167,7 +209,7 @@ export class Game {
  handleChat(socket,msg){const ent=this.entOf(socket);if(!ent)return;const now=Date.now();if(now-ent.lastChatAt<1200)return;ent.lastChatAt=now;const text=String(msg?.text||'').slice(0,120).trim();if(!text)return;this.chatOut(ent,text);scheduleBotReplies(this,ent,text)}
  handleInteract(socket){const ent=this.entOf(socket);if(!ent||ent.dead)return;const now=Date.now(),f=this.world.fountains.find(q=>dist(ent,q)<100);if(f){if(now-ent.lastHealAt>4000){ent.lastHealAt=now;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});socket.emit('sys',{t:'Você recuperou suas forças na fonte da vila.'})}return}if(dist(ent,this.world.shopNpc)<100)socket.emit('shop',{open:true,gold:ent.gold,pot:ent.pot,price:POTION.price})}
  handleBuyPotion(socket){const ent=this.entOf(socket);if(!ent||dist(ent,this.world.shopNpc)>140)return;if(ent.pot>=POTION.max){socket.emit('sys',{t:'Você já está carregando poções demais.'});return}if(ent.gold<POTION.price){socket.emit('sys',{t:'Ryō insuficiente! Cace monstros para ganhar mais.'});return}ent.gold-=POTION.price;ent.pot++;socket.emit('shop',{open:true,gold:ent.gold,pot:ent.pot,price:POTION.price});socket.emit('sys',{t:'Poção comprada! Aperte Q para usar em combate.'})}
- tick(){const dt=.05,now=Date.now();this.tickCount++;this.updateMonsters(dt,now);this.updateProjectiles(dt);this.updateRegen(dt,now);for(const p of this.players.values())if(p.bot)p.bot.think(dt,now);this.updateBotLifecycle(now);this.sendSnapshots(now);if(now>this.lastTip){this.lastTip=now+90000+rnd()*60000;this.sys(TIPS[Math.floor(rnd()*TIPS.length)])}if(now-this.lastSave>30000){this.lastSave=now;for(const p of this.players.values())if(p.kind==='human')this.saved[p.name.toLowerCase()]={el:p.el,lv:p.lv,xp:p.xp,gold:p.gold,pot:p.pot};saveReal(this.saved)}}
+ tick(){const dt=.05,now=Date.now();this.tickCount++;this.updateMonsters(dt,now);this.updateProjectiles(dt);this.updateRegen(dt,now);for(const p of this.players.values())if(p.bot)p.bot.think(dt,now);this.updateBotLifecycle(now);this.sendSnapshots(now);if(now>this.lastTip){this.lastTip=now+90000+rnd()*60000;this.sys(TIPS[Math.floor(rnd()*TIPS.length)])}if(now-this.lastSave>30000){this.lastSave=now;for(const p of this.players.values())if(p.kind==='human')this.saved[p.name.toLowerCase()]={el:p.el,village:p.village,lv:p.lv,xp:p.xp,gold:p.gold,pot:p.pot};saveReal(this.saved)}}
  updateMonsters(dt,now){for(const m of this.monsters.values()){if(m.dead){if(now>=m.respawnAt){m.dead=false;m.hp=m.maxHp;m.aggroId=null;m.burnUntil=0;m.burnNextAt=0;m.burnDamage=0;m.burnOwnerId=null;m.slowUntil=0;m.stunUntil=0;m.x=m.spawnX+(rnd()-.5)*60;m.y=m.spawnY+(rnd()-.5)*60;if(!walkable(this.world,m.x,m.y)){m.x=m.spawnX;m.y=m.spawnY}if(m.boss)this.sys('O Zetsu Ancião surgiu no Vale do Fim!')}continue}
 if(m.burnUntil>now&&m.burnOwnerId!=null&&now>=m.burnNextAt){
   m.burnNextAt=now+650;
@@ -191,7 +233,7 @@ if(m.boss&&m.slamPending&&now>=m.slamPending.at){const sp=m.slamPending;m.slamPe
    else if(walkable(this.world,m.x+sx,m.y))m.x+=sx;
    else if(walkable(this.world,m.x,m.y+sy))m.y+=sy;
  }
- updateProjectiles(dt){for(const pr of[...this.projectiles.values()]){pr.x+=pr.vx*dt;pr.y+=pr.vy*dt;pr.ttl-=dt;let dead=pr.ttl<=0||!walkable(this.world,pr.x,pr.y);if(!dead){const owner=this.players.get(pr.owner);for(const m of this.monsters.values())if(!m.dead&&!pr.hitIds.has(m.id)&&dist(m,pr)<m.radius+pr.radius){pr.hitIds.add(m.id);if(owner)this.hitMonster(m,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}if(!dead&&owner){for(const p of this.players.values()){if(!this.canPvp(owner,p)||pr.hitIds.has(p.id)||dist(p,pr)>=PLAYER_HIT_RADIUS+pr.radius)continue;pr.hitIds.add(p.id);this.hitPlayer(p,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}}}if(dead)this.projectiles.delete(pr.id)}}
+ updateProjectiles(dt){for(const pr of[...this.projectiles.values()]){pr.x+=pr.vx*dt;pr.y+=pr.vy*dt;pr.ttl-=dt;let dead=pr.ttl<=0;const owner=this.players.get(pr.owner);if(!dead){const obj=this.destructibleAt(pr.x,pr.y,pr.radius+6);if(obj&&owner){const oid=-obj.id-1;if(!pr.hitIds.has(oid)){pr.hitIds.add(oid);this.hitWorldObject(obj,pr.dmg,owner)}if(!pr.pierce)dead=true}if(!dead&&!walkable(this.world,pr.x,pr.y))dead=true}if(!dead){for(const m of this.monsters.values())if(!m.dead&&!pr.hitIds.has(m.id)&&dist(m,pr)<m.radius+pr.radius){pr.hitIds.add(m.id);if(owner)this.hitMonster(m,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}if(!dead&&owner){for(const p of this.players.values()){if(!this.canPvp(owner,p)||pr.hitIds.has(p.id)||dist(p,pr)>=PLAYER_HIT_RADIUS+pr.radius)continue;pr.hitIds.add(p.id);this.hitPlayer(p,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}}}if(dead)this.projectiles.delete(pr.id)}}
  updateRegen(dt,now){for(const p of this.players.values()){const maxCh=maxChOf(p.lv),maxHp=maxHpOf(p.lv);if(!p.dead){p.ch=Math.min(maxCh,p.ch+5.5*dt);if(now-p.lastCombatAt>6000)p.hp=Math.min(maxHp,p.hp+2.2*dt)}}}
  updateBotLifecycle(now){if(now<this.lastLifecycle)return;this.lastLifecycle=now+25000;const bots=[...this.players.values()].filter(p=>p.kind==='bot');if(bots.length>BOT_TARGET-4&&rnd()<.55){const b=bots[Math.floor(rnd()*bots.length)];if(b&&!b.bot?.inCombat()){if(rnd()<.45)b.bot?.sayFarewell();this.players.delete(b.id);this.forgetEntity(b.id);this.broadcast('pLeave',{id:b.id});this.sys(`${b.name} saiu do jogo.`)}}else if(bots.length<BOT_TARGET+3&&rnd()<.6){const b=this.addBot();if(b){this.broadcast('pJoin',{id:b.id,n:b.name,lv:b.lv,el:b.el,v:b.village,pal:b.pal});this.sys(`${b.name} entrou no jogo.`);if(rnd()<.5)b.bot?.sayJoin()}}}
  sendSnapshots(now){

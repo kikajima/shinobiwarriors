@@ -15,6 +15,11 @@ for (const id of villages) {
   if (!zone?.safe) throw new Error(`zona segura ausente: ${id}`)
 }
 
+const objectIds = new Set(world.objects.map((o) => o.id))
+if (objectIds.size !== world.objects.length) throw new Error('IDs de objetos do mundo não são únicos')
+const destructibles = world.objects.filter((o) => typeof o.hp === 'number')
+if (!destructibles.length) throw new Error('mundo não possui cenário destrutível')
+
 const totalMobs = world.spawns.reduce((sum, z) => sum + z.count, 0)
 if (totalMobs < 180) throw new Error(`densidade de mobs baixa: ${totalMobs}`)
 console.log(`world=${world.w}x${world.h} objects=${world.objects.length} plannedMobs=${totalMobs}`)

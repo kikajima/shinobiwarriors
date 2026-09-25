@@ -140,6 +140,8 @@ export default function GameClient() {
     const onFx = (d: any) => engine.applyFx(d)
     const onDmg = (d: any) => engine.applyDmg(d)
     net.on('snapshot', onSnapshot); net.on('fx', onFx); net.on('dmg', onDmg)
+    const onObjDestroy = (d: { id: number; k: string; x: number; y: number }) => engine.destroyObject(d)
+    net.on('objDestroy', onObjDestroy)
 
     const onPJoin = (d: RosterEnt) => setRoster((r) => (r.some((p) => p.id === d.id) ? r : [...r, d]))
     const onPLeave = (d: { id: number }) => setRoster((r) => r.filter((p) => p.id !== d.id))
@@ -151,7 +153,7 @@ export default function GameClient() {
     }
     const onChat = (d: any) => pushChat({ key: nextChatKey(), kind: 'chat', name: d.n, lv: d.lv, el: d.el, text: d.text })
     const onSys = (d: { t: string }) => pushChat({ key: nextChatKey(), kind: 'sys', text: d.t })
-    const onKill = (d: any) => pushChat({ key: nextChatKey(), kind: 'kill', name: d.k, text: d.pvp ? `PvP — ${d.v} (Nv${d.mlv})` : `${d.v} (Nv${d.mlv}) +${d.g} ryō` })
+    const onKill = (d: any) => pushChat({ key: nextChatKey(), kind: 'kill', name: d.k, text: d.pvp ? `PvP — ${d.v} (Nv${d.mlv})${d.xp > 0 ? ` +${d.xp} XP` : ' · sem XP repetido'}` : `${d.v} (Nv${d.mlv}) +${d.g} ryō` })
     const onMission = (d: any) => { if (d.done) { setMissionDone({ name: d.name, gold: d.gold, xp: d.xp }); audio.play('lvl') } }
     const onShop = (d: ShopMsg) => setShop(d.open ? d : null)
     const onDead = (d: { by: string }) => setDeathBy(d.by)
@@ -167,7 +169,7 @@ export default function GameClient() {
 
     return () => {
       clearInterval(hudTimer); ro.disconnect(); engine.stop(); input.detach(); engineRef.current = null
-      for (const e of ['snapshot','fx','dmg','pJoin','pLeave','lvl','chat','sys','kill','mission','shop','dead','revived']) net.off(e)
+      for (const e of ['snapshot','fx','dmg','objDestroy','pJoin','pLeave','lvl','chat','sys','kill','mission','shop','dead','revived']) net.off(e)
     }
   }, [phase, engineVersion, art])
 

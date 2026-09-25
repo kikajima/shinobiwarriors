@@ -29,6 +29,7 @@ export type NetEvents = {
   revived: (d: { x: number; y: number }) => void
   pJoin: (d: RosterEnt) => void
   pLeave: (d: { id: number }) => void
+  objDestroy: (d: { id: number; k: string; x: number; y: number }) => void
 }
 
 export class NetClient {

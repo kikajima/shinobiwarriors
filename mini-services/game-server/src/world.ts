@@ -6,9 +6,11 @@
 import { MAP_SIZE, type VillageId } from './data'
 
 export interface WorldObj {
+  id: number
   k: string
   x: number
   y: number
+  hp?: number
 }
 
 export interface Zone {
@@ -102,7 +104,7 @@ function mulberry32(seed: number) {
   }
 }
 
-const OBJ_FOOTPRINT: Record<string, [number, number]> = {
+export const OBJ_FOOTPRINT: Record<string, [number, number]> = {
   tree: [1, 1],
   tree2: [1, 1],
   deadtree: [1, 1],
@@ -116,12 +118,20 @@ const OBJ_FOOTPRINT: Record<string, [number, number]> = {
   fountain: [2, 2],
 }
 
+export const DESTRUCTIBLE_HP: Record<string, number> = {
+  tree: 45,
+  tree2: 55,
+  deadtree: 30,
+  rock: 85,
+}
+
 export function genWorld(): World {
   const w = MAP_SIZE
   const h = MAP_SIZE
   const rnd = mulberry32(1337)
   const grid: string[][] = []
   const objects: WorldObj[] = []
+  let nextObjectId = 1
   const blocked = new Uint8Array(w * h)
 
   const T = (x: number, y: number) => grid[y]?.[x] ?? ''
@@ -231,7 +241,8 @@ export function genWorld(): World {
         blocked[ty * w + tx] = 1
       }
     }
-    objects.push({ k, x, y })
+    const hp = DESTRUCTIBLE_HP[k]
+    objects.push({ id: nextObjectId++, k, x, y, ...(hp ? { hp } : {}) })
     return true
   }
 
@@ -394,4 +405,23 @@ export function tileWalkable(world: World, tx: number, ty: number): boolean {
 
 export function walkable(world: World, px: number, py: number): boolean {
   return tileWalkable(world, Math.floor(px / 32), Math.floor(py / 32))
+}
+
+export function destroyWorldObject(world: World, id: number): WorldObj | null {
+  const index = world.objects.findIndex((o) => o.id === id)
+  if (index < 0) return null
+  const obj = world.objects[index]
+  if (!DESTRUCTIBLE_HP[obj.k]) return null
+
+  world.objects.splice(index, 1)
+  const [fw, fh] = OBJ_FOOTPRINT[obj.k] || [1, 1]
+  for (let oy = 0; oy < fh; oy++) {
+    for (let ox = 0; ox < fw; ox++) {
+      const tx = obj.x + ox, ty = obj.y + oy
+      if (tx >= 0 && ty >= 0 && tx < world.w && ty < world.h) {
+        world.blocked[ty * world.w + tx] = 0
+      }
+    }
+  }
+  return obj
 }

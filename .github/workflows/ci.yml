@@ -53,6 +53,10 @@ jobs:
         working-directory: mini-services/game-server
         run: bun map-test.ts
 
+      - name: Validate destructible scenery
+        working-directory: mini-services/game-server
+        run: bun destruction-test.ts
+
       - name: Validate PvP rules
         working-directory: mini-services/game-server
         run: bun pvp-test.ts

@@ -30,6 +30,29 @@ if (!hit || target.hp >= hpBefore) {
   throw new Error('Golpe PvP não reduziu HP fora da zona segura')
 }
 
+// Aliados da mesma vila nunca podem causar dano entre si, mesmo fora da zona segura.
+target.village = attacker.village
+target.hp = 200
+const allyHpBefore = target.hp
+if (game.canPvp(attacker, target) || game.hitPlayer(target, attacker, 20, 1, false) || target.hp !== allyHpBefore) {
+  throw new Error('PvP entre jogadores da mesma vila não foi bloqueado')
+}
+target.village = 'areia'
+
+// XP PvP: recompensa rival, mas bloqueia farm repetido da mesma vítima por 3 minutos.
+const rival = players[2]
+if (!rival) throw new Error('PvP test precisa de um terceiro ninja')
+attacker.lv = 5
+rival.lv = 6
+attacker.village = 'folha'
+rival.village = 'terra'
+const reward1 = game.pvpXpReward(attacker, rival, 1_000_000)
+const rewardRepeat = game.pvpXpReward(attacker, rival, 1_001_000)
+const rewardAfterCooldown = game.pvpXpReward(attacker, rival, 1_181_000)
+if (reward1 <= 0 || rewardRepeat !== 0 || rewardAfterCooldown <= 0) {
+  throw new Error(`anti-farm PvP inválido: ${reward1}/${rewardRepeat}/${rewardAfterCooldown}`)
+}
+
 // Centro da Vila da Folha (zona safe): PvP deve ser completamente bloqueado.
 attacker.x = 32.5 * 32
 attacker.y = 35 * 32
@@ -49,4 +72,4 @@ if (safeHit || target.hp !== safeHpBefore) {
   throw new Error('Zona segura permitiu dano PvP')
 }
 
-console.log('[pvp] OK: dano fora da vila e bloqueio em zona segura')
+console.log('[pvp] OK: facções rivais, aliados, zona segura e XP anti-farm')

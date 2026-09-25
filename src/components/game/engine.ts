@@ -57,7 +57,7 @@ export class GameEngine {
     input: InputController;
     map: WelcomeData['map'];
     walkGrid: Uint8Array;
-    objRender: { k: string; x: number; y: number; sortY: number }[] = [];
+    objRender: { id: number; k: string; x: number; y: number; sortY: number }[] = [];
     minimapBase: HTMLCanvasElement | null = null;
     entities = new Map<number, Entity>();
     projectiles = new Map<number, Projectile>();
@@ -202,7 +202,7 @@ export class GameEngine {
             for (let oy = 0; oy < fh; oy++)
                 for (let ox = 0; ox < fw; ox++)
                     this.walkGrid[(o.y + oy) * w + (o.x + ox)] = 1;
-            this.objRender.push({ k: o.k, x: o.x, y: o.y, sortY: (o.y + fh) * TILE });
+            this.objRender.push({ id: o.id, k: o.k, x: o.x, y: o.y, sortY: (o.y + fh) * TILE });
         }
         this.tiles = art.tiles;
         this.playerArt = art.players;
@@ -211,6 +211,40 @@ export class GameEngine {
         this.npc = buildNpcSprites();
         this.charSprites(this.el, 0);
         this.resize();
+    }
+    destroyObject(d: { id: number; k: string; x: number; y: number }) {
+        const obj = this.map.objects.find((o) => o.id === d.id);
+        if (!obj) return;
+        const [fw, fh] = OBJ_FOOTPRINT[obj.k] || [1, 1];
+        this.map.objects = this.map.objects.filter((o) => o.id !== d.id);
+        this.objRender = this.objRender.filter((o) => o.id !== d.id);
+        for (let oy = 0; oy < fh; oy++) {
+            for (let ox = 0; ox < fw; ox++) {
+                const tx = obj.x + ox, ty = obj.y + oy;
+                if (tx < 0 || ty < 0 || tx >= this.map.w || ty >= this.map.h) continue;
+                this.walkGrid[ty * this.map.w + tx] = this.map.tiles[ty][tx] === 'w' ? 1 : 0;
+            }
+        }
+        this.minimapBase = null;
+        const cx = (obj.x + fw / 2) * TILE, cy = (obj.y + fh / 2) * TILE;
+        const rock = obj.k === 'rock';
+        const colors = rock ? ['#b8aea2','#8d8176','#655b53'] : ['#83a956','#527a3a','#7b5a35'];
+        for (let i = 0; i < (rock ? 16 : 22); i++) {
+            const a = Math.random() * Math.PI * 2, speed = 35 + Math.random() * 95;
+            this.particles.push({
+                x: cx + (Math.random() - .5) * 16,
+                y: cy + (Math.random() - .5) * 18,
+                vx: Math.cos(a) * speed,
+                vy: Math.sin(a) * speed - 65,
+                life: 420 + Math.random() * 380,
+                maxLife: 800,
+                size: 2 + Math.random() * 3,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                grav: 180,
+                kind: rock ? 'rock' : 'dot',
+            });
+        }
+        this.shake = Math.max(this.shake, rock ? 4 : 2);
     }
     charSprites(el: ElementId, pal: number): HTMLCanvasElement[][] {
         const key = `${el}:${pal}`;
@@ -392,6 +426,8 @@ export class GameEngine {
             case'death':this.burstDeath(fx.x,fx.y,!!fx.boss);audio.play('death');break;
             case'pdeath':this.burstDeath(fx.x,fx.y,false);audio.play('death');break;
             case'mhit':this.burst(fx.x,fx.y,6,'fogo',70);audio.play('monster');break;
+            case'objhit':this.burst(fx.x,fx.y,5,el,65,8);break;
+            case'objbreak':this.shake=Math.max(this.shake,3);break;
             case'slamwarn':this.telegraphs.push({x:fx.x,y:fx.y,r:fx.r||135,until:now+950});break;
             case'slam':this.aoes.push({x:fx.x,y:fx.y,r:fx.r||135,el:'terra',born:now,until:now+500,danger:true});this.burst(fx.x,fx.y,30,'terra',200,90);this.shake=Math.max(this.shake,13);audio.play('crit');break;
         }

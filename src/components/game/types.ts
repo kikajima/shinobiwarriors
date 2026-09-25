@@ -18,12 +18,18 @@ export const VILLAGE_COLORS: Record<VillageId, string> = {
   nevoa: '#68bde0',
   terra: '#b48a60',
 }
+export const VILLAGE_TAGS: Record<VillageId, string> = {
+  folha: 'FOL',
+  areia: 'ARE',
+  nevoa: 'NÉV',
+  terra: 'TER',
+}
 
 export interface MapData {
   w: number
   h: number
   tiles: string[]
-  objects: { k: string; x: number; y: number }[]
+  objects: { id: number; k: string; x: number; y: number; hp?: number }[]
   zones: { n: string; x1: number; y1: number; x2: number; y2: number; safe?: boolean; village?: VillageId }[]
   fountains: { x: number; y: number; village: VillageId }[]
   fountain: { x: number; y: number }
