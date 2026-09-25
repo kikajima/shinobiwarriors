@@ -1,6 +1,6 @@
 // ============================================================
-// Shinobi Online — mundo 128x128 (4x a área do mapa original)
-// Quatro vilas/facções: Folha, Areia, Névoa e Terra.
+// Shinobi Online — mundo 256x256
+// Quatro territórios, quatro vilas, fronteiras e comércio.
 // ============================================================
 
 import { MAP_SIZE, type VillageId } from './data'
@@ -32,6 +32,14 @@ export interface SpawnZone {
   y2: number
 }
 
+export interface ShopPoint {
+  id: number
+  name: string
+  x: number
+  y: number
+  village: VillageId
+}
+
 export interface World {
   w: number
   h: number
@@ -42,48 +50,49 @@ export interface World {
   blocked: Uint8Array
   fountains: { x: number; y: number; village: VillageId }[]
   fountain: { x: number; y: number }
+  shops: ShopPoint[]
   shopNpc: { x: number; y: number }
 }
 
 export const VILLAGE_CENTERS: Record<VillageId, { x: number; y: number; name: string }> = {
-  folha: { x: 28, y: 28, name: 'Vila da Folha' },
-  areia: { x: 100, y: 28, name: 'Vila da Areia' },
-  nevoa: { x: 28, y: 100, name: 'Vila da Névoa' },
-  terra: { x: 100, y: 100, name: 'Vila da Terra' },
+  folha: { x: 52, y: 52, name: 'Vila da Folha' },
+  areia: { x: 204, y: 52, name: 'Vila da Areia' },
+  nevoa: { x: 52, y: 204, name: 'Vila da Névoa' },
+  terra: { x: 204, y: 204, name: 'Vila da Terra' },
 }
 
 export const VILLAGE_SPAWNS: Record<VillageId, { x: number; y: number }> = Object.fromEntries(
   Object.entries(VILLAGE_CENTERS).map(([id, c]) => [
     id,
-    { x: (c.x + 0.5) * 32, y: (c.y + 4.5) * 32 },
+    { x: (c.x + 0.5) * 32, y: (c.y + 6.5) * 32 },
   ]),
 ) as Record<VillageId, { x: number; y: number }>
 
-// Âncoras de grind continuam sendo conceitos de IA, mas agora se espalham pelo mundo.
 export const ZONE_ANCHORS: Record<string, { x: number; y: number }> = {
-  vila: { x: 28, y: 32 },
-  campo: { x: 64, y: 28 },
-  floresta: { x: 24, y: 8 },
-  lago: { x: 28, y: 118 },
-  vale: { x: 100, y: 116 },
+  vila: { x: 52, y: 58 },
+  campo: { x: 128, y: 52 },
+  floresta: { x: 42, y: 18 },
+  lago: { x: 52, y: 234 },
+  vale: { x: 204, y: 232 },
 }
 
 export const GRIND_ANCHORS: Record<string, { x: number; y: number }[]> = {
   campo: [
-    { x: 44, y: 28 }, { x: 84, y: 28 }, { x: 44, y: 100 }, { x: 84, y: 100 },
-    { x: 28, y: 44 }, { x: 100, y: 44 }, { x: 28, y: 84 }, { x: 100, y: 84 },
+    { x: 82, y: 52 }, { x: 174, y: 52 }, { x: 82, y: 204 }, { x: 174, y: 204 },
+    { x: 52, y: 82 }, { x: 204, y: 82 }, { x: 52, y: 174 }, { x: 204, y: 174 },
+    { x: 112, y: 112 }, { x: 144, y: 112 }, { x: 112, y: 144 }, { x: 144, y: 144 },
   ],
   floresta: [
-    { x: 14, y: 10 }, { x: 42, y: 10 }, { x: 12, y: 52 }, { x: 48, y: 48 },
-    { x: 78, y: 12 }, { x: 114, y: 14 },
+    { x: 18, y: 18 }, { x: 86, y: 18 }, { x: 18, y: 92 }, { x: 92, y: 92 },
+    { x: 154, y: 18 }, { x: 236, y: 18 }, { x: 162, y: 92 }, { x: 236, y: 92 },
   ],
   lago: [
-    { x: 10, y: 78 }, { x: 46, y: 78 }, { x: 12, y: 116 }, { x: 48, y: 116 },
-    { x: 78, y: 78 }, { x: 116, y: 80 },
+    { x: 18, y: 154 }, { x: 86, y: 154 }, { x: 18, y: 236 }, { x: 92, y: 236 },
+    { x: 154, y: 154 }, { x: 236, y: 154 },
   ],
   vale: [
-    { x: 78, y: 112 }, { x: 116, y: 112 }, { x: 80, y: 86 }, { x: 116, y: 86 },
-    { x: 64, y: 64 },
+    { x: 154, y: 232 }, { x: 236, y: 232 }, { x: 162, y: 174 }, { x: 236, y: 174 },
+    { x: 128, y: 104 }, { x: 128, y: 152 }, { x: 104, y: 128 }, { x: 152, y: 128 },
   ],
 }
 
@@ -125,9 +134,18 @@ export const DESTRUCTIBLE_HP: Record<string, number> = {
   rock: 85,
 }
 
+// Janelas de regeneração por objeto, contadas a partir da quebra.
+export const DESTRUCTIBLE_REGEN_MS: Record<string, [number, number]> = {
+  deadtree: [150_000, 270_000],
+  tree: [240_000, 420_000],
+  tree2: [300_000, 480_000],
+  rock: [360_000, 600_000],
+}
+
 export function genWorld(): World {
   const w = MAP_SIZE
   const h = MAP_SIZE
+  const half = Math.floor(MAP_SIZE / 2)
   const rnd = mulberry32(1337)
   const grid: string[][] = []
   const objects: WorldObj[] = []
@@ -139,7 +157,7 @@ export function genWorld(): World {
     if (x >= 0 && x < w && y >= 0 && y < h) grid[y][x] = c
   }
   const inBounds = (x: number, y: number) => x >= 0 && x < w && y >= 0 && y < h
-  const isWalkTile = (x: number, y: number) => !['w'].includes(T(x, y))
+  const isWalkTile = (x: number, y: number) => T(x, y) !== 'w'
 
   for (let y = 0; y < h; y++) {
     const row: string[] = []
@@ -147,23 +165,23 @@ export function genWorld(): World {
     grid.push(row)
   }
 
-  // --- quatro biomas ---
   // Areia (NE)
-  for (let y = 0; y < 64; y++) {
-    for (let x = 64; x < 128; x++) {
-      if (rnd() < 0.82) setT(x, y, 's')
-      else setT(x, y, rnd() < 0.5 ? ',' : '.')
+  for (let y = 0; y < half; y++) {
+    for (let x = half; x < w; x++) {
+      setT(x, y, rnd() < 0.84 ? 's' : rnd() < 0.5 ? ',' : '.')
     }
   }
 
-  // Névoa (SW): terreno úmido, capim e lagoas rasas.
-  for (let y = 64; y < 128; y++) {
-    for (let x = 0; x < 64; x++) {
-      if (rnd() < 0.12) setT(x, y, 'g')
+  // Névoa (SW)
+  for (let y = half; y < h; y++) {
+    for (let x = 0; x < half; x++) {
+      if (rnd() < 0.14) setT(x, y, 'g')
     }
   }
   const mistPonds = [
-    [12, 78, 7], [46, 78, 6], [10, 116, 6], [48, 114, 8], [42, 96, 5],
+    [18, 156, 8], [54, 160, 7], [94, 156, 9],
+    [20, 232, 8], [58, 234, 10], [100, 228, 7],
+    [38, 190, 6], [88, 202, 8],
   ] as const
   for (const [cx, cy, r] of mistPonds) {
     for (let y = cy - r - 2; y <= cy + r + 2; y++) {
@@ -176,18 +194,18 @@ export function genWorld(): World {
     }
   }
 
-  // Terra (SE): solo seco/pedregoso.
-  for (let y = 64; y < 128; y++) {
-    for (let x = 64; x < 128; x++) {
+  // Terra (SE)
+  for (let y = half; y < h; y++) {
+    for (let x = half; x < w; x++) {
       const r = rnd()
-      setT(x, y, r < 0.46 ? 's' : r < 0.72 ? ',' : '.')
+      setT(x, y, r < 0.50 ? 's' : r < 0.74 ? ',' : '.')
     }
   }
 
-  // Folha (NW): capim mais denso.
-  for (let y = 0; y < 64; y++) {
-    for (let x = 0; x < 64; x++) {
-      if (rnd() < 0.09) setT(x, y, 'g')
+  // Folha (NW)
+  for (let y = 0; y < half; y++) {
+    for (let x = 0; x < half; x++) {
+      if (rnd() < 0.10) setT(x, y, 'g')
     }
   }
 
@@ -204,16 +222,16 @@ export function genWorld(): World {
     }
   }
 
-  // Estradas ligando vilas e fronteira central.
-  roadH(28, 28, 100)
-  roadH(64, 28, 100)
-  roadH(100, 28, 100)
-  roadV(28, 28, 100)
-  roadV(64, 28, 100)
-  roadV(100, 28, 100)
+  // Rede principal liga as quatro vilas à fronteira central.
+  roadH(52, 52, 204)
+  roadH(128, 52, 204)
+  roadH(204, 52, 204)
+  roadV(52, 52, 204)
+  roadV(128, 52, 204)
+  roadV(204, 52, 204)
 
   const villageRects = Object.values(VILLAGE_CENTERS).map((c) => ({
-    x1: c.x - 10, y1: c.y - 10, x2: c.x + 10, y2: c.y + 10,
+    x1: c.x - 14, y1: c.y - 14, x2: c.x + 14, y2: c.y + 14,
   }))
   const inVillage = (x: number, y: number) =>
     villageRects.some((v) => x >= v.x1 && x <= v.x2 && y >= v.y1 && y <= v.y2)
@@ -231,45 +249,69 @@ export function genWorld(): World {
     }
     return true
   }
+
   const placeObject = (k: string, x: number, y: number, force = false) => {
     const [fw, fh] = OBJ_FOOTPRINT[k]
-    if (!force && !canPlace(k, x, y)) return false
+    if (!force && !canPlace(k, x, y)) return null
     for (let oy = 0; oy < fh; oy++) {
       for (let ox = 0; ox < fw; ox++) {
         const tx = x + ox, ty = y + oy
-        if (!inBounds(tx, ty)) return false
+        if (!inBounds(tx, ty)) return null
         blocked[ty * w + tx] = 1
       }
     }
     const hp = DESTRUCTIBLE_HP[k]
-    objects.push({ id: nextObjectId++, k, x, y, ...(hp ? { hp } : {}) })
-    return true
+    const obj: WorldObj = { id: nextObjectId++, k, x, y, ...(hp ? { hp } : {}) }
+    objects.push(obj)
+    return obj
   }
 
   const fountains: { x: number; y: number; village: VillageId }[] = []
+  const shops: ShopPoint[] = []
+  let nextShopId = 1
+
+  const shopNames: Record<VillageId, [string, string]> = {
+    folha: ['Ichiraku Ramen', 'Armazém da Folha'],
+    areia: ['Mercado do Deserto', 'Casa de Chá da Areia'],
+    nevoa: ['Suprimentos da Névoa', 'Casa de Chá da Névoa'],
+    terra: ['Armazém da Pedra', 'Casa de Chá da Terra'],
+  }
 
   const placeVillage = (id: VillageId) => {
     const c = VILLAGE_CENTERS[id]
 
-    // Praça central caminhável.
-    for (let y = c.y - 4; y <= c.y + 4; y++) {
-      for (let x = c.x - 4; x <= c.x + 4; x++) setT(x, y, 'c')
+    for (let y = c.y - 6; y <= c.y + 6; y++) {
+      for (let x = c.x - 6; x <= c.x + 6; x++) setT(x, y, 'c')
     }
-    // Caminhos atravessam a praça.
-    roadH(c.y, c.x - 10, c.x + 10)
-    roadV(c.x, c.y - 10, c.y + 10)
+    roadH(c.y, c.x - 14, c.x + 14)
+    roadV(c.x, c.y - 14, c.y + 14)
 
     const houses: [number, number][] = [
-      [c.x - 8, c.y - 7], [c.x + 5, c.y - 7],
-      [c.x - 8, c.y + 6], [c.x + 5, c.y + 6],
+      [c.x - 12, c.y - 11], [c.x - 3, c.y - 11], [c.x + 9, c.y - 11],
+      [c.x - 12, c.y + 9], [c.x - 3, c.y + 9], [c.x + 9, c.y + 9],
     ]
     for (const [x, y] of houses) placeObject('house', x, y, true)
 
-    const fx = c.x + 4, fy = c.y - 2
+    const shopDefs: [number, number, string][] = [
+      [c.x - 10, c.y - 5, shopNames[id][0]],
+      [c.x + 7, c.y - 5, shopNames[id][1]],
+    ]
+    for (const [x, y, name] of shopDefs) {
+      placeObject('shop', x, y, true)
+      shops.push({
+        id: nextShopId++,
+        name,
+        x: (x + 1.5) * 32,
+        y: (y + 2.65) * 32,
+        village: id,
+      })
+    }
+
+    const fx = c.x + 5, fy = c.y + 3
     placeObject('fountain', fx, fy, true)
     fountains.push({ x: (fx + 1) * 32, y: (fy + 1) * 32, village: id })
 
-    const r = 10
+    const r = 14
     for (let i = c.x - r; i <= c.x + r; i++) {
       const gate = i === c.x || i === c.x + 1
       if (!gate) {
@@ -285,91 +327,94 @@ export function genWorld(): World {
       }
     }
 
-    for (const [dx, dy] of [[-5, -5], [6, -5], [-5, 6], [6, 6]] as [number, number][]) {
-      placeObject('lantern', c.x + dx, c.y + dy, true)
+    for (const [dx, dy] of [
+      [-8, -8], [0, -8], [8, -8],
+      [-8, 7], [0, 7], [8, 7],
+    ] as [number, number][]) {
+      const tx = c.x + dx, ty = c.y + dy
+      if (!blocked[ty * w + tx]) placeObject('lantern', tx, ty, true)
     }
-    placeObject('sign', c.x, c.y + 9, true)
+    placeObject('sign', c.x, c.y + 13, true)
   }
 
   ;(['folha', 'areia', 'nevoa', 'terra'] as VillageId[]).forEach(placeVillage)
 
-  // Mantém um único comerciante/NPC: Ichiraku continua na Folha.
-  placeObject('shop', 24, 20, true)
-  const shopNpc = { x: 25.5 * 32, y: 22.6 * 32 }
-
-  // Decoração regional, sem entupir vilas/estradas/âncoras.
+  // Decoração regional. Densidade controlada para o mapa grande.
   for (let y = 2; y < h - 2; y++) {
     for (let x = 2; x < w - 2; x++) {
       if (inVillage(x, y) || nearAnchor(x, y, 3)) continue
       if (T(x, y) === 'p' || T(x, y) === 'c' || T(x, y) === 'w') continue
       if (blocked[y * w + x]) continue
 
-      const qx = x < 64 ? 0 : 1
-      const qy = y < 64 ? 0 : 1
+      const qx = x < half ? 0 : 1
+      const qy = y < half ? 0 : 1
       const r = rnd()
       if (qx === 0 && qy === 0) {
-        if (r < 0.075) placeObject(rnd() < 0.75 ? 'tree' : 'tree2', x, y)
-        else if (r < 0.095) placeObject('rock', x, y)
-        else if (r < 0.13) setT(x, y, '"')
+        if (r < 0.040) placeObject(rnd() < 0.76 ? 'tree' : 'tree2', x, y)
+        else if (r < 0.052) placeObject('rock', x, y)
+        else if (r < 0.082) setT(x, y, '"')
       } else if (qx === 1 && qy === 0) {
-        if (r < 0.055) placeObject('rock', x, y)
-        else if (r < 0.072) placeObject('deadtree', x, y)
+        if (r < 0.032) placeObject('rock', x, y)
+        else if (r < 0.043) placeObject('deadtree', x, y)
       } else if (qx === 0 && qy === 1) {
-        if (r < 0.045) placeObject(rnd() < 0.7 ? 'tree2' : 'tree', x, y)
-        else if (r < 0.07) setT(x, y, 'g')
+        if (r < 0.031) placeObject(rnd() < 0.7 ? 'tree2' : 'tree', x, y)
+        else if (r < 0.044) placeObject('rock', x, y)
+        else if (r < 0.075) setT(x, y, 'g')
       } else {
-        if (r < 0.082) placeObject('rock', x, y)
-        else if (r < 0.105) placeObject('deadtree', x, y)
+        if (r < 0.044) placeObject('rock', x, y)
+        else if (r < 0.058) placeObject('deadtree', x, y)
       }
     }
   }
 
-  // Área central de conflito, com postes e placas.
-  for (const [x, y] of [[58, 58], [70, 58], [58, 70], [70, 70], [64, 60], [64, 68]] as [number, number][]) {
+  for (const [x, y] of [
+    [116, 116], [140, 116], [116, 140], [140, 140],
+    [128, 112], [128, 144], [112, 128], [144, 128],
+  ] as [number, number][]) {
     if (!blocked[y * w + x] && T(x, y) !== 'p') placeObject('post', x, y)
   }
 
   const zones: Zone[] = [
-    { n: 'Vila da Folha', x1: 18, y1: 18, x2: 38, y2: 38, safe: true, village: 'folha' },
-    { n: 'Vila da Areia', x1: 90, y1: 18, x2: 110, y2: 38, safe: true, village: 'areia' },
-    { n: 'Vila da Névoa', x1: 18, y1: 90, x2: 38, y2: 110, safe: true, village: 'nevoa' },
-    { n: 'Vila da Terra', x1: 90, y1: 90, x2: 110, y2: 110, safe: true, village: 'terra' },
-    { n: 'Fronteiras Shinobi', x1: 56, y1: 0, x2: 71, y2: 127 },
-    { n: 'Fronteiras Shinobi', x1: 0, y1: 56, x2: 127, y2: 71 },
-    { n: 'Florestas da Folha', x1: 0, y1: 0, x2: 63, y2: 63 },
-    { n: 'Deserto da Areia', x1: 64, y1: 0, x2: 127, y2: 63 },
-    { n: 'Pântanos da Névoa', x1: 0, y1: 64, x2: 63, y2: 127 },
-    { n: 'Montanhas da Terra', x1: 64, y1: 64, x2: 127, y2: 127 },
-    { n: 'Terras Neutras', x1: 0, y1: 0, x2: 127, y2: 127 },
+    { n: 'Vila da Folha', x1: 38, y1: 38, x2: 66, y2: 66, safe: true, village: 'folha' },
+    { n: 'Vila da Areia', x1: 190, y1: 38, x2: 218, y2: 66, safe: true, village: 'areia' },
+    { n: 'Vila da Névoa', x1: 38, y1: 190, x2: 66, y2: 218, safe: true, village: 'nevoa' },
+    { n: 'Vila da Terra', x1: 190, y1: 190, x2: 218, y2: 218, safe: true, village: 'terra' },
+    { n: 'Fronteiras Shinobi', x1: 120, y1: 0, x2: 135, y2: 255 },
+    { n: 'Fronteiras Shinobi', x1: 0, y1: 120, x2: 255, y2: 135 },
+    { n: 'Florestas da Folha', x1: 0, y1: 0, x2: 127, y2: 127 },
+    { n: 'Deserto da Areia', x1: 128, y1: 0, x2: 255, y2: 127 },
+    { n: 'Pântanos da Névoa', x1: 0, y1: 128, x2: 127, y2: 255 },
+    { n: 'Montanhas da Terra', x1: 128, y1: 128, x2: 255, y2: 255 },
+    { n: 'Terras Neutras', x1: 0, y1: 0, x2: 255, y2: 255 },
   ]
 
-  // 188 mobs: ~4x o mapa original, espalhados pelos quatro territórios.
+  // Mantém densidade aproximada do mapa 128x128 (~4x mais mobs).
   const spawns: SpawnZone[] = [
-    // Folha / NW
-    { monster: 'bandido', count: 12, x1: 39, y1: 20, x2: 57, y2: 48 },
-    { monster: 'sapo', count: 10, x1: 5, y1: 42, x2: 17, y2: 57 },
-    { monster: 'gennin', count: 12, x1: 5, y1: 5, x2: 57, y2: 15 },
-    { monster: 'zetsu', count: 12, x1: 5, y1: 18, x2: 15, y2: 52 },
-    // Areia / NE
-    { monster: 'bandido', count: 12, x1: 70, y1: 20, x2: 88, y2: 48 },
-    { monster: 'sapo', count: 10, x1: 112, y1: 42, x2: 123, y2: 57 },
-    { monster: 'gennin', count: 12, x1: 70, y1: 5, x2: 123, y2: 15 },
-    { monster: 'zetsu', count: 12, x1: 113, y1: 18, x2: 123, y2: 52 },
-    // Névoa / SW
-    { monster: 'bandido', count: 12, x1: 39, y1: 78, x2: 57, y2: 108 },
-    { monster: 'sapo', count: 10, x1: 5, y1: 70, x2: 17, y2: 88 },
-    { monster: 'gennin', count: 12, x1: 5, y1: 113, x2: 57, y2: 123 },
-    { monster: 'zetsu', count: 12, x1: 5, y1: 76, x2: 15, y2: 110 },
-    // Terra / SE
-    { monster: 'bandido', count: 12, x1: 70, y1: 78, x2: 88, y2: 108 },
-    { monster: 'sapo', count: 10, x1: 112, y1: 70, x2: 123, y2: 88 },
-    { monster: 'gennin', count: 12, x1: 70, y1: 113, x2: 123, y2: 123 },
-    { monster: 'zetsu', count: 12, x1: 113, y1: 76, x2: 123, y2: 110 },
-    // Chefes na fronteira central
-    { monster: 'boss', count: 1, x1: 62, y1: 50, x2: 62, y2: 50 },
-    { monster: 'boss', count: 1, x1: 76, y1: 64, x2: 76, y2: 64 },
-    { monster: 'boss', count: 1, x1: 64, y1: 76, x2: 64, y2: 76 },
-    { monster: 'boss', count: 1, x1: 50, y1: 64, x2: 50, y2: 64 },
+    // Folha
+    { monster: 'bandido', count: 42, x1: 68, y1: 34, x2: 116, y2: 112 },
+    { monster: 'sapo', count: 36, x1: 8, y1: 70, x2: 34, y2: 116 },
+    { monster: 'gennin', count: 44, x1: 8, y1: 8, x2: 116, y2: 30 },
+    { monster: 'zetsu', count: 44, x1: 8, y1: 34, x2: 32, y2: 112 },
+    // Areia
+    { monster: 'bandido', count: 42, x1: 140, y1: 34, x2: 188, y2: 112 },
+    { monster: 'sapo', count: 36, x1: 220, y1: 70, x2: 247, y2: 116 },
+    { monster: 'gennin', count: 44, x1: 140, y1: 8, x2: 247, y2: 30 },
+    { monster: 'zetsu', count: 44, x1: 222, y1: 34, x2: 247, y2: 112 },
+    // Névoa
+    { monster: 'bandido', count: 42, x1: 68, y1: 144, x2: 116, y2: 188 },
+    { monster: 'sapo', count: 36, x1: 8, y1: 140, x2: 34, y2: 188 },
+    { monster: 'gennin', count: 44, x1: 8, y1: 222, x2: 116, y2: 247 },
+    { monster: 'zetsu', count: 44, x1: 8, y1: 144, x2: 32, y2: 220 },
+    // Terra
+    { monster: 'bandido', count: 42, x1: 140, y1: 144, x2: 188, y2: 188 },
+    { monster: 'sapo', count: 36, x1: 220, y1: 140, x2: 247, y2: 188 },
+    { monster: 'gennin', count: 44, x1: 140, y1: 222, x2: 247, y2: 247 },
+    { monster: 'zetsu', count: 44, x1: 222, y1: 144, x2: 247, y2: 220 },
+    // Chefes na fronteira
+    { monster: 'boss', count: 2, x1: 124, y1: 92, x2: 132, y2: 112 },
+    { monster: 'boss', count: 2, x1: 144, y1: 124, x2: 164, y2: 132 },
+    { monster: 'boss', count: 2, x1: 124, y1: 144, x2: 132, y2: 164 },
+    { monster: 'boss', count: 2, x1: 92, y1: 124, x2: 112, y2: 132 },
   ]
 
   return {
@@ -382,7 +427,8 @@ export function genWorld(): World {
     blocked,
     fountains,
     fountain: fountains[0],
-    shopNpc,
+    shops,
+    shopNpc: shops[0],
   }
 }
 
@@ -398,8 +444,7 @@ export function zoneAt(world: World, px: number, py: number): Zone {
 
 export function tileWalkable(world: World, tx: number, ty: number): boolean {
   if (tx < 0 || ty < 0 || tx >= world.w || ty >= world.h) return false
-  const t = world.tiles[ty][tx]
-  if (t === 'w') return false
+  if (world.tiles[ty][tx] === 'w') return false
   return world.blocked[ty * world.w + tx] === 0
 }
 
@@ -424,4 +469,24 @@ export function destroyWorldObject(world: World, id: number): WorldObj | null {
     }
   }
   return obj
+}
+
+export function restoreWorldObject(world: World, obj: WorldObj): boolean {
+  if (world.objects.some((o) => o.id === obj.id)) return false
+  const [fw, fh] = OBJ_FOOTPRINT[obj.k] || [1, 1]
+  for (let oy = 0; oy < fh; oy++) {
+    for (let ox = 0; ox < fw; ox++) {
+      const tx = obj.x + ox, ty = obj.y + oy
+      if (tx < 0 || ty < 0 || tx >= world.w || ty >= world.h) return false
+      if (world.tiles[ty][tx] === 'w' || world.blocked[ty * world.w + tx]) return false
+    }
+  }
+  obj.hp = DESTRUCTIBLE_HP[obj.k]
+  world.objects.push(obj)
+  for (let oy = 0; oy < fh; oy++) {
+    for (let ox = 0; ox < fw; ox++) {
+      world.blocked[(obj.y + oy) * world.w + (obj.x + ox)] = 1
+    }
+  }
+  return true
 }

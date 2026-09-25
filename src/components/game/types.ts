@@ -33,6 +33,7 @@ export interface MapData {
   zones: { n: string; x1: number; y1: number; x2: number; y2: number; safe?: boolean; village?: VillageId }[]
   fountains: { x: number; y: number; village: VillageId }[]
   fountain: { x: number; y: number }
+  shops: { id: number; name: string; x: number; y: number; village: VillageId }[]
   shopNpc: { x: number; y: number }
 }
 
@@ -145,13 +146,14 @@ export interface MissionMsg {
 
 export interface ShopMsg {
   open: boolean
+  name: string
   gold: number
   pot: number
   price: number
 }
 
 export const TILE = 32
-export const MAP_SIZE = 128
+export const MAP_SIZE = 256
 
 // fórmulas espelhadas do servidor
 export const maxHpOf = (lv: number) => 90 + 28 * (lv - 1)

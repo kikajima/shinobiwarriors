@@ -26,8 +26,8 @@ export interface SkillDef {
 }
 
 export const TILE = 32
-export const MAP_SIZE = 128
-export const MAX_LEVEL = 30
+export const MAP_SIZE = 256
+export const MAX_LEVEL = 200
 export const PLAYER_SPEED = 175
 export const BOT_SPEED = 160
 
@@ -215,7 +215,7 @@ export const CHAT = {
     'to quase pegando o dragão de agua', 'morri ontem pro anciao kkk ragei',
     'alguem sabe onde spawna mais zetsu?', 'no lago tem sapo sem conta',
     'fui no vale ontem... nunca mais', 'a fonte da vila cura geral, top',
-    'comprei 5 poções, baratinho no ichiraku', 'bora gente, upar no vale precisa de grupo',
+    'comprei 5 poções na loja da vila', 'bora gente, upar no vale precisa de grupo',
     'treinando pro chunin shiken', 'meu melhor jutsu é esse mesmo kkk',
     'alguem viu o naruto? kkk to brincando', 'hoje o treino rendeu',
     'gente boa esse server', 'shippuden fillers me matam',
@@ -228,7 +228,7 @@ export const CHAT = {
   ],
   answer: [
     'acho que os zetsu spawnam mais na floresta funda', 'no lago amigo, margem leste',
-    'chidori é skill 2 do elemento raio, investida', 'a loja fica no ichiraku, centro da vila',
+    'chidori é skill 2 do elemento raio, investida', 'cada vila tem duas lojas de suprimentos perto da praça central',
     'o boss fica no vale do fim, levanta a cada 2 min', 'poção é 25 ryō, aperta E na loja',
     'upando bandido no campo é o mais rápido no começo', 'tem que apertar 1 a 4 pros jutsus',
     'a fonte da vila cura de graça', 'não sei kkkk nunca testei',
@@ -269,7 +269,7 @@ export const TIPS = [
   'Dica: a fonte da vila cura você de graça.',
   'Dica: missões dão ryō e XP — acompanhe no painel de missões.',
   'Dica: o Zetsu Ancião aguarda no Vale do Fim. Leve poções!',
-  'Dica: o Ichiraku (loja) vende poções por 25 ryō.',
+  'Dica: as lojas de cada vila vendem poções por 25 ryō.',
   'Dica: mire com o mouse ou use mira automática no celular.',
   'Dica: cada elemento tem 4 jutsus diferentes. Experimente!',
 ]

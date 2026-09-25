@@ -141,7 +141,8 @@ export default function GameClient() {
     const onDmg = (d: any) => engine.applyDmg(d)
     net.on('snapshot', onSnapshot); net.on('fx', onFx); net.on('dmg', onDmg)
     const onObjDestroy = (d: { id: number; k: string; x: number; y: number }) => engine.destroyObject(d)
-    net.on('objDestroy', onObjDestroy)
+    const onObjRespawn = (d: { id: number; k: string; x: number; y: number; hp?: number }) => engine.restoreObject(d)
+    net.on('objDestroy', onObjDestroy); net.on('objRespawn', onObjRespawn)
 
     const onPJoin = (d: RosterEnt) => setRoster((r) => (r.some((p) => p.id === d.id) ? r : [...r, d]))
     const onPLeave = (d: { id: number }) => setRoster((r) => r.filter((p) => p.id !== d.id))
@@ -169,7 +170,7 @@ export default function GameClient() {
 
     return () => {
       clearInterval(hudTimer); ro.disconnect(); engine.stop(); input.detach(); engineRef.current = null
-      for (const e of ['snapshot','fx','dmg','objDestroy','pJoin','pLeave','lvl','chat','sys','kill','mission','shop','dead','revived']) net.off(e)
+      for (const e of ['snapshot','fx','dmg','objDestroy','objRespawn','pJoin','pLeave','lvl','chat','sys','kill','mission','shop','dead','revived']) net.off(e)
     }
   }, [phase, engineVersion, art])
 
@@ -227,7 +228,7 @@ export default function GameClient() {
       <PlayersPanel players={roster} selfId={welcome.id} open={playersOpen} /><Minimap engine={engineRef.current} />
       {zoneBanner ? <ZoneBanner key={zoneBanner.key} zone={zoneBanner.name} safe={zoneBanner.safe} /> : null}
     </> : <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"><div className="font-pixel animate-pulse text-[10px] tracking-widest text-[#e8d5a9]">CARREGANDO MUNDO...</div></div>}
-    {shop ? <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#0f0d0a99] p-4"><PixelPanel className="w-[min(400px,92vw)] !p-4" title="ICHIRAKU RAMEN">
+    {shop ? <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#0f0d0a99] p-4"><PixelPanel className="w-[min(400px,92vw)] !p-4" title={shop.name || "LOJA DE SUPRIMENTOS"}>
       <button type="button" onClick={() => setShop(null)} className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center border border-[#3a2f22] text-[#a89b7d]" aria-label="Fechar"><X className="h-4 w-4" /></button>
       <div className="font-retro mt-3 space-y-2 text-[15px] text-[#e8d5a9]"><div className="flex items-center gap-2"><FlaskConical className="h-5 w-5 text-[#e88a8a]" /><span className="flex-1">Poção de cura (55% do HP)</span><span className="flex items-center gap-1 text-[#f0d060]"><Coins className="h-4 w-4" />{shop.price}</span></div>
       <div className="flex justify-between border-t border-dotted border-[#3a2f22] pt-2 text-[#a89b7d]"><span>Seu ouro: <span className="text-[#f0d060]">{shop.gold} ryō</span></span><span>Poções: <span className="text-[#e88a8a]">{shop.pot}/9</span></span></div>

@@ -95,8 +95,12 @@ export function findBotPath(
   return route
 }
 
-const zoneForLevel = (lv: number): string =>
-  lv < 4 ? 'campo' : lv < 7 ? 'floresta' : lv < 10 ? 'lago' : 'vale'
+const zoneForLevel = (lv: number): string => {
+  if (lv < 15) return 'campo'
+  if (lv < 35) return 'floresta'
+  if (lv < 60) return rnd() < 0.55 ? 'lago' : 'vale'
+  return 'vale'
+}
 
 const EL_PT: Record<string, string> = { fogo: 'fogo', agua: 'agua', raio: 'raio', vento: 'vento', terra: 'terra' }
 
