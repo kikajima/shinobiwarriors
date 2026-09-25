@@ -1,51 +1,36 @@
-// Visualização ASCII do mundo gerado
-import { genWorld, walkable } from './src/world'
+// Validação estrutural do mundo 128x128 e das quatro vilas.
+import { genWorld, walkable, VILLAGE_SPAWNS } from './src/world'
 import { findBotPath } from './src/bots'
 
 const world = genWorld()
-console.log(`tiles=${world.tiles.length} (esperado 64)`)
-console.log(`row length=${world.tiles[0].length} (esperado 64)`)
-console.log(`objects=${world.objects.length}`)
-const byKind: Record<string, number> = {}
-for (const o of world.objects) byKind[o.k] = (byKind[o.k] || 0) + 1
-console.log('objetos por tipo:', JSON.stringify(byKind))
+if (world.w !== 128 || world.h !== 128) throw new Error(`mapa deveria ser 128x128, veio ${world.w}x${world.h}`)
+if (world.tiles.length !== 128 || world.tiles.some((r) => r.length !== 128)) throw new Error('grade de tiles inválida')
+if (world.fountains.length !== 4) throw new Error(`esperava 4 fontes, veio ${world.fountains.length}`)
 
-// desenha mapa: tiles + objetos (X) + spawns (letras)
-const chars: Record<string, string> = { bandido: 'b', sapo: 's', gennin: 'g', zetsu: 'z', boss: 'B' }
-const grid = world.tiles.map((r) => r.split(''))
-for (const o of world.objects) {
-  const c = o.k === 'house' ? 'H' : o.k === 'shop' ? 'L' : o.k === 'fountain' ? 'F' : o.k === 'fence' ? 'x' : 'T'
-  grid[o.y][o.x] = c
-}
-for (const sz of world.spawns) {
-  const n = chars[sz.monster]
-  grid[Math.floor((sz.y1 + sz.y2) / 2)][Math.floor((sz.x1 + sz.x2) / 2)] = n
-}
-console.log('    ' + Array.from({ length: 64 }, (_, i) => (i % 10 === 0 ? '|' : ' ')).join(''))
-for (let y = 0; y < 64; y++) {
-  console.log(String(y).padStart(3) + ' ' + grid[y].join(''))
+const villages = ['folha', 'areia', 'nevoa', 'terra'] as const
+for (const id of villages) {
+  const spawn = VILLAGE_SPAWNS[id]
+  if (!walkable(world, spawn.x, spawn.y)) throw new Error(`spawn bloqueado: ${id}`)
+  const zone = world.zones.find((z) => z.village === id)
+  if (!zone?.safe) throw new Error(`zona segura ausente: ${id}`)
 }
 
-// valida walkable nos anchors
-const probes: Array<[string, number, number]> = [
-  ['vila', 32.5, 35], ['campo', 50, 32], ['floresta', 32, 15], ['lago', 34, 46], ['vale', 15, 32],
-]
-for (const [n, x, y] of probes) {
-  const ok = walkable(world, x * 32, y * 32)
-  console.log(`walkable ${n}:`, ok)
-  if (!ok) throw new Error(`anchor bloqueada: ${n}`)
-}
+const totalMobs = world.spawns.reduce((sum, z) => sum + z.count, 0)
+if (totalMobs < 180) throw new Error(`densidade de mobs baixa: ${totalMobs}`)
+console.log(`world=${world.w}x${world.h} objects=${world.objects.length} plannedMobs=${totalMobs}`)
 
-const village = { x: 32.5 * 32, y: 35.5 * 32 }
-for (const [name, x, y] of probes.filter(([name]) => name !== 'vila')) {
-  const route = findBotPath(world, village.x, village.y, (x + .5) * 32, (y + .5) * 32)
-  console.log(`route vila -> ${name}: ${route.length} waypoints`)
-  if (!route.length) throw new Error(`sem rota caminhável da vila para ${name}`)
-  for (const point of route) {
-    if (!walkable(world, point.x, point.y)) {
-      throw new Error(`rota para ${name} contém waypoint bloqueado em ${point.x},${point.y}`)
-    }
+// Toda vila deve conseguir alcançar a fronteira central e as outras vilas.
+const center = { x: 64.5 * 32, y: 64.5 * 32 }
+for (const id of villages) {
+  const start = VILLAGE_SPAWNS[id]
+  const toCenter = findBotPath(world, start.x, start.y, center.x, center.y)
+  if (!toCenter.length) throw new Error(`sem rota ${id} -> centro`)
+  for (const other of villages) {
+    if (other === id) continue
+    const end = VILLAGE_SPAWNS[other]
+    const route = findBotPath(world, start.x, start.y, end.x, end.y)
+    if (!route.length) throw new Error(`sem rota ${id} -> ${other}`)
   }
 }
 
-console.log('map/pathfinding OK')
+console.log('map/pathfinding 4-villages OK')

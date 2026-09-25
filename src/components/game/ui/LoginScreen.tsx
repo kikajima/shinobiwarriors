@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { ELEMENTS, ELEMENT_MAP, type ElementId } from './element-data'
+import { VILLAGE_COLORS, VILLAGE_NAMES, type VillageId } from '../types'
 import { PixelPanel } from './pixel'
 
 export interface LoginScreenProps {
@@ -14,8 +15,9 @@ export interface LoginScreenProps {
   connected: boolean
   savedName: string | null
   savedElement: ElementId | null
+  savedVillage: VillageId | null
   loading?: boolean
-  onPlay: (name: string, element: ElementId) => void
+  onPlay: (name: string, element: ElementId, village: VillageId) => void
 }
 
 const PC_CONTROLS = [
@@ -44,11 +46,13 @@ export default function LoginScreen({
   connected,
   savedName,
   savedElement,
+  savedVillage,
   loading = false,
   onPlay,
 }: LoginScreenProps) {
   const [name, setName] = useState(savedName ?? '')
   const [selectedElement, setSelectedElement] = useState<ElementId>(savedElement ?? 'fogo')
+  const [selectedVillage, setSelectedVillage] = useState<VillageId>(savedVillage ?? 'folha')
 
   const selectedInfo = ELEMENT_MAP[selectedElement]
   const trimmedName = name.trim()
@@ -56,7 +60,7 @@ export default function LoginScreen({
 
   const handlePlay = () => {
     if (!canPlay || loading) return
-    onPlay(trimmedName, selectedElement)
+    onPlay(trimmedName, selectedElement, selectedVillage)
   }
 
   return (
@@ -76,7 +80,7 @@ export default function LoginScreen({
               SHINOBI ONLINE
             </h1>
             <p className="font-retro text-lg text-[#e8d5a9]">
-              Crônicas da Vila da Folha • MMORPG de fã
+              Crônicas das Quatro Vilas • MMORPG de fã
             </p>
             {connected ? (
               <div
@@ -88,7 +92,7 @@ export default function LoginScreen({
                 <span aria-hidden="true" className="text-[#6b5f4a]">
                   •
                 </span>
-                <span className="text-[#a89b7d]">Servidor BR • Vila da Folha</span>
+                <span className="text-[#a89b7d]">Servidor BR • Guerra das Vilas</span>
               </div>
             ) : (
               <div
@@ -191,6 +195,47 @@ export default function LoginScreen({
             </div>
           </section>
 
+
+          {/* ===== Seletor de vila ===== */}
+          <section className="w-full max-w-5xl" aria-labelledby="vila-label">
+            <h2 id="vila-label" className="mb-2 font-pixel text-[9px] tracking-wider text-[#a89b7d]">
+              ESCOLHA SUA VILA
+            </h2>
+            <div role="radiogroup" aria-labelledby="vila-label" className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {(['folha', 'areia', 'nevoa', 'terra'] as VillageId[]).map((village) => {
+                const selected = selectedVillage === village
+                const descriptions: Record<VillageId, string> = {
+                  folha: 'Florestas e campos verdes.',
+                  areia: 'Deserto aberto e terreno seco.',
+                  nevoa: 'Pântanos, água e névoa.',
+                  terra: 'Montanhas e solo rochoso.',
+                }
+                return (
+                  <button
+                    key={village}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setSelectedVillage(village)}
+                    className={cn(
+                      'min-h-[82px] border-2 bg-[#211a12] p-3 text-left shadow-[4px_4px_0_rgba(0,0,0,0.5)] transition-all',
+                      selected ? 'scale-[1.02] border-[#f97316]' : 'border-[#3a2f22] hover:border-[#a89b7d]',
+                    )}
+                  >
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="h-3 w-3 border border-black" style={{ background: VILLAGE_COLORS[village] }} />
+                      <span className="font-retro text-xl font-bold text-[#e8d5a9]">{VILLAGE_NAMES[village]}</span>
+                    </div>
+                    <p className="font-retro text-base leading-tight text-[#a89b7d]">{descriptions[village]}</p>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="mt-2 font-retro text-sm text-[#8f8065]">
+              Sua vila define aliados, local de renascimento e facção no PvP. Shinobis da mesma vila não causam dano entre si.
+            </p>
+          </section>
+
           {/* ===== Jutsus do elemento selecionado ===== */}
           <PixelPanel
             title={`JUTSUS DE ${selectedInfo.name.toUpperCase()} — ${selectedInfo.jutsuStyle.toUpperCase()}`}
@@ -230,7 +275,7 @@ export default function LoginScreen({
             </Button>
             {savedName ? (
               <p className="text-center font-retro text-base text-[#a89b7d]">
-                Continuando como {savedName}
+                Continuando como {savedName} • {VILLAGE_NAMES[selectedVillage]}
               </p>
             ) : null}
           </section>
@@ -272,7 +317,7 @@ export default function LoginScreen({
               </div>
             </div>
             <p className="mt-4 border-t border-dotted border-[#3a2f22] pt-3 font-retro text-base text-[#6b5f4a]">
-              Dica: complete missões para ganhar ryō e XP. O boss aguarda no Vale do Fim...
+              Dica: as vilas são zonas seguras. Fora delas, o PvP é entre vilas rivais.
             </p>
           </PixelPanel>
         </main>

@@ -9,6 +9,8 @@ if (!attacker || !target) throw new Error('PvP test precisa de dois jogadores')
 
 attacker.dead = false
 target.dead = false
+attacker.village = 'folha'
+target.village = 'areia'
 
 // Área externa à Vila da Folha (tile ~3,3): PvP deve funcionar.
 attacker.x = 100

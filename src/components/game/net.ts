@@ -61,8 +61,8 @@ export class NetClient {
     return !!this.socket?.connected
   }
 
-  join(name: string, element: string) {
-    this.socket?.emit('join', { name, element })
+  join(name: string, element: string, village: string) {
+    this.socket?.emit('join', { name, element, village })
   }
 
   move(x: number, y: number, dir: number) {

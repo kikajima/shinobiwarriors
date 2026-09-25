@@ -2,7 +2,7 @@
 // Shinobi Online — tipos de entidades
 // ============================================================
 
-import type { ElementId } from './data'
+import type { ElementId, VillageId } from './data'
 import type { BotBrain } from './bots'
 
 export interface PlayerEnt {
@@ -10,6 +10,7 @@ export interface PlayerEnt {
   kind: 'human' | 'bot'
   name: string
   el: ElementId
+  village: VillageId
   pal: number
   lv: number
   xp: number
@@ -90,6 +91,7 @@ export interface ProjectileEnt {
 
 export interface SavedPlayer {
   el: ElementId
+  village?: VillageId
   lv: number
   xp: number
   gold: number

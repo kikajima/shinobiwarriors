@@ -7,7 +7,7 @@
 import type { Game } from './game'
 import type { MonsterEnt, PlayerEnt } from './types'
 import { BOT_SPEED, CHAT, SKILLS } from './data'
-import { GRIND_ANCHORS, ZONE_ANCHORS, tileWalkable, walkable, type World } from './world'
+import { GRIND_ANCHORS, ZONE_ANCHORS, VILLAGE_SPAWNS, tileWalkable, walkable, type World } from './world'
 
 const rnd = Math.random
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -220,7 +220,7 @@ export class BotBrain {
       this.wanderAt = now + 2000 + rnd() * 4000
       this.wanderAng = rnd() * Math.PI * 2
     }
-    const vila = { x: (ZONE_ANCHORS.vila.x + .5) * TILE, y: (ZONE_ANCHORS.vila.y + .5) * TILE }
+    const vila = VILLAGE_SPAWNS[ent.village] || VILLAGE_SPAWNS.folha
     const wx = ent.x + Math.cos(this.wanderAng) * 30 * dt
     const wy = ent.y + Math.sin(this.wanderAng) * 30 * dt
     if (this.game.canStand(wx, wy) && dist({ x: wx, y: wy }, vila) < 260) {
@@ -411,9 +411,10 @@ export class BotBrain {
     this.targetId = null
     this.returningToVillage = zone === 'vila'
 
-    const target = zone === 'vila' ? ZONE_ANCHORS.vila : this.currentAnchor()
-    const targetX = (target.x + .5) * TILE
-    const targetY = (target.y + .5) * TILE
+    const target = zone === 'vila' ? null : this.currentAnchor()
+    const home = VILLAGE_SPAWNS[ent.village] || VILLAGE_SPAWNS.folha
+    const targetX = target ? (target.x + .5) * TILE : home.x
+    const targetY = target ? (target.y + .5) * TILE : home.y
     this.route = findBotPath(this.game.world, ent.x, ent.y, targetX, targetY)
     if (!this.route.length) this.route = [{ x: targetX, y: targetY }]
   }

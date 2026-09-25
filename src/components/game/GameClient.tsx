@@ -22,10 +22,11 @@ import { TouchControls } from './ui/TouchControls'
 import LoginScreen from './ui/LoginScreen'
 import { PixelPanel } from './ui/pixel'
 import { Button } from '@/components/ui/button'
-import type { ElementId, RosterEnt, ShopMsg, WelcomeData } from './types'
+import { VILLAGE_IDS, type ElementId, type VillageId, type RosterEnt, type ShopMsg, type WelcomeData } from './types'
 
 const SAVED_KEY = 'shinobi-online-save'
 const VALID_ELEMENTS = new Set<ElementId>(['fogo', 'agua', 'raio', 'vento', 'terra'])
+const VALID_VILLAGES = new Set<VillageId>(VILLAGE_IDS)
 const MAX_CHAT_MESSAGES = 200
 
 export default function GameClient() {
@@ -34,7 +35,7 @@ export default function GameClient() {
   const [online, setOnline] = useState(0)
   const [loading, setLoading] = useState(false)
   const [joinError, setJoinError] = useState<string | null>(null)
-  const [saved, setSaved] = useState<{ name: string | null; element: ElementId | null }>({ name: null, element: null })
+  const [saved, setSaved] = useState<{ name: string | null; element: ElementId | null; village: VillageId | null }>({ name: null, element: null, village: null })
 
   const [hud, setHud] = useState<HudState | null>(null)
   const [chatMsgs, setChatMsgs] = useState<ChatEntry[]>([])
@@ -53,7 +54,7 @@ export default function GameClient() {
   const engineRef = useRef<GameEngine | null>(null)
   const inputRef = useRef<InputController | null>(null)
   const welcomeRef = useRef<WelcomeData | null>(null)
-  const credsRef = useRef<{ name: string; element: ElementId } | null>(null)
+  const credsRef = useRef<{ name: string; element: ElementId; village: VillageId } | null>(null)
   const [engineVersion, setEngineVersion] = useState(0)
 
   useEffect(() => {
@@ -68,7 +69,8 @@ export default function GameClient() {
         const d = JSON.parse(raw)
         const name = typeof d?.name === 'string' ? d.name.trim().slice(0, 14) || null : null
         const element = VALID_ELEMENTS.has(d?.element) ? d.element : null
-        setSaved({ name, element })
+        const village = VALID_VILLAGES.has(d?.village) ? d.village : null
+        setSaved({ name, element, village })
       }
     } catch {
       localStorage.removeItem(SAVED_KEY)
@@ -97,7 +99,7 @@ export default function GameClient() {
   useEffect(() => {
     const socket = net.connect()
     const onReconnect = () => {
-      if (phase === 'playing' && credsRef.current) net.join(credsRef.current.name, credsRef.current.element)
+      if (phase === 'playing' && credsRef.current) net.join(credsRef.current.name, credsRef.current.element, credsRef.current.village)
     }
     socket.on('connect', onReconnect)
     return () => { socket.off('connect', onReconnect) }
@@ -175,13 +177,13 @@ export default function GameClient() {
     return () => clearTimeout(t)
   }, [missionDone])
 
-  const handlePlay = useCallback((name: string, element: ElementId) => {
+  const handlePlay = useCallback((name: string, element: ElementId, village: VillageId) => {
     const cleanName = name.trim().slice(0, 14)
-    if (cleanName.length < 2 || !VALID_ELEMENTS.has(element)) return
+    if (cleanName.length < 2 || !VALID_ELEMENTS.has(element) || !VALID_VILLAGES.has(village)) return
 
-    audio.init(); credsRef.current = { name: cleanName, element }
-    try { localStorage.setItem(SAVED_KEY, JSON.stringify({ name: cleanName, element })) } catch { /* ignora */ }
-    setLoading(true); net.join(cleanName, element)
+    audio.init(); credsRef.current = { name: cleanName, element, village }
+    try { localStorage.setItem(SAVED_KEY, JSON.stringify({ name: cleanName, element, village })) } catch { /* ignora */ }
+    setLoading(true); net.join(cleanName, element, village)
   }, [])
 
   const dispatchAction = useCallback((a: GameAction) => {
@@ -207,7 +209,7 @@ export default function GameClient() {
   const welcome = welcomeRef.current
   if (phase === 'login') {
     return <div className="fixed inset-0 overflow-hidden bg-[#0f0d0a]">
-      <LoginScreen online={online} connected={connected} savedName={saved.name} savedElement={saved.element} loading={loading} onPlay={handlePlay} />
+      <LoginScreen online={online} connected={connected} savedName={saved.name} savedElement={saved.element} savedVillage={saved.village} loading={loading} onPlay={handlePlay} />
       {joinError ? <div className="font-retro fixed bottom-16 left-1/2 z-[60] -translate-x-1/2 border-2 border-[#c03030] bg-[#1a1410] px-4 py-2 text-lg text-[#ff8080] shadow-[4px_4px_0_rgba(0,0,0,0.5)]">{joinError}</div> : null}
     </div>
   }

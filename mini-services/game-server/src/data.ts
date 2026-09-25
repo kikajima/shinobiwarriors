@@ -3,6 +3,14 @@
 // ============================================================
 
 export type ElementId = 'fogo' | 'agua' | 'raio' | 'vento' | 'terra'
+export type VillageId = 'folha' | 'areia' | 'nevoa' | 'terra'
+export const VILLAGE_IDS: VillageId[] = ['folha', 'areia', 'nevoa', 'terra']
+export const VILLAGE_NAMES: Record<VillageId, string> = {
+  folha: 'Vila da Folha',
+  areia: 'Vila da Areia',
+  nevoa: 'Vila da Névoa',
+  terra: 'Vila da Terra',
+}
 export type SkillArchetype = 'proj' | 'multi' | 'dash' | 'line' | 'aoe'
 
 export interface SkillDef {
@@ -18,7 +26,7 @@ export interface SkillDef {
 }
 
 export const TILE = 32
-export const MAP_SIZE = 64
+export const MAP_SIZE = 128
 export const MAX_LEVEL = 30
 export const PLAYER_SPEED = 175
 export const BOT_SPEED = 160

@@ -26,8 +26,8 @@ const isFiniteNumber = (value: unknown): value is number => typeof value === 'nu
 io.on('connection', (socket) => {
   socket.emit('meta', { online: game.onlineCount() })
 
-  socket.on('join', (data: { name?: string; element?: string }) => {
-    const res = game.addHuman(socket, String(data?.name || ''), (data?.element || 'fogo') as any)
+  socket.on('join', (data: { name?: string; element?: string; village?: string }) => {
+    const res = game.addHuman(socket, String(data?.name || ''), (data?.element || 'fogo') as any, data?.village)
     if (!res.ok) socket.emit('joinError', { error: res.error })
   })
 

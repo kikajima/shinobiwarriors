@@ -1,8 +1,9 @@
 // ============================================================
-// Shinobi Online — geração do mundo (mapa 64x64 tiles de 32px)
+// Shinobi Online — mundo 128x128 (4x a área do mapa original)
+// Quatro vilas/facções: Folha, Areia, Névoa e Terra.
 // ============================================================
 
-import { MAP_SIZE } from './data'
+import { MAP_SIZE, type VillageId } from './data'
 
 export interface WorldObj {
   k: string
@@ -17,6 +18,7 @@ export interface Zone {
   x2: number
   y2: number
   safe?: boolean
+  village?: VillageId
 }
 
 export interface SpawnZone {
@@ -36,11 +38,59 @@ export interface World {
   zones: Zone[]
   spawns: SpawnZone[]
   blocked: Uint8Array
+  fountains: { x: number; y: number; village: VillageId }[]
   fountain: { x: number; y: number }
   shopNpc: { x: number; y: number }
 }
 
-// PRNG determinístico
+export const VILLAGE_CENTERS: Record<VillageId, { x: number; y: number; name: string }> = {
+  folha: { x: 28, y: 28, name: 'Vila da Folha' },
+  areia: { x: 100, y: 28, name: 'Vila da Areia' },
+  nevoa: { x: 28, y: 100, name: 'Vila da Névoa' },
+  terra: { x: 100, y: 100, name: 'Vila da Terra' },
+}
+
+export const VILLAGE_SPAWNS: Record<VillageId, { x: number; y: number }> = Object.fromEntries(
+  Object.entries(VILLAGE_CENTERS).map(([id, c]) => [
+    id,
+    { x: (c.x + 0.5) * 32, y: (c.y + 4.5) * 32 },
+  ]),
+) as Record<VillageId, { x: number; y: number }>
+
+// Âncoras de grind continuam sendo conceitos de IA, mas agora se espalham pelo mundo.
+export const ZONE_ANCHORS: Record<string, { x: number; y: number }> = {
+  vila: { x: 28, y: 32 },
+  campo: { x: 64, y: 28 },
+  floresta: { x: 24, y: 8 },
+  lago: { x: 28, y: 118 },
+  vale: { x: 100, y: 116 },
+}
+
+export const GRIND_ANCHORS: Record<string, { x: number; y: number }[]> = {
+  campo: [
+    { x: 44, y: 28 }, { x: 84, y: 28 }, { x: 44, y: 100 }, { x: 84, y: 100 },
+    { x: 28, y: 44 }, { x: 100, y: 44 }, { x: 28, y: 84 }, { x: 100, y: 84 },
+  ],
+  floresta: [
+    { x: 14, y: 10 }, { x: 42, y: 10 }, { x: 12, y: 52 }, { x: 48, y: 48 },
+    { x: 78, y: 12 }, { x: 114, y: 14 },
+  ],
+  lago: [
+    { x: 10, y: 78 }, { x: 46, y: 78 }, { x: 12, y: 116 }, { x: 48, y: 116 },
+    { x: 78, y: 78 }, { x: 116, y: 80 },
+  ],
+  vale: [
+    { x: 78, y: 112 }, { x: 116, y: 112 }, { x: 80, y: 86 }, { x: 116, y: 86 },
+    { x: 64, y: 64 },
+  ],
+}
+
+const ALL_ANCHORS = [
+  ...Object.values(ZONE_ANCHORS),
+  ...Object.values(GRIND_ANCHORS).flat(),
+  ...Object.values(VILLAGE_CENTERS),
+]
+
 function mulberry32(seed: number) {
   let a = seed
   return () => {
@@ -66,35 +116,6 @@ const OBJ_FOOTPRINT: Record<string, [number, number]> = {
   fountain: [2, 2],
 }
 
-// Âncoras de grind dos bots (tiles) — clareiras garantidas na geração
-export const ZONE_ANCHORS: Record<string, { x: number; y: number }> = {
-  vila: { x: 32, y: 35 },
-  campo: { x: 50, y: 32 },
-  floresta: { x: 32, y: 15 },
-  lago: { x: 34, y: 46 },
-  vale: { x: 15, y: 32 },
-}
-
-export const GRIND_ANCHORS: Record<string, { x: number; y: number }[]> = {
-  campo: [
-    { x: 48, y: 28 }, { x: 52, y: 33 }, { x: 56, y: 27 }, { x: 55, y: 37 },
-  ],
-  floresta: [
-    { x: 30, y: 13 }, { x: 36, y: 11 }, { x: 42, y: 14 }, { x: 24, y: 15 },
-  ],
-  lago: [
-    { x: 38, y: 48 }, { x: 40, y: 52 }, { x: 56, y: 50 }, { x: 58, y: 54 },
-  ],
-  vale: [
-    { x: 13, y: 26 }, { x: 13, y: 38 }, { x: 17, y: 31 },
-  ],
-}
-
-const ALL_ANCHORS: { x: number; y: number }[] = [
-  ...Object.values(ZONE_ANCHORS),
-  ...Object.values(GRIND_ANCHORS).flat(),
-]
-
 export function genWorld(): World {
   const w = MAP_SIZE
   const h = MAP_SIZE
@@ -107,204 +128,237 @@ export function genWorld(): World {
   const setT = (x: number, y: number, c: string) => {
     if (x >= 0 && x < w && y >= 0 && y < h) grid[y][x] = c
   }
-  const isGrass = (x: number, y: number) => {
-    const t = T(x, y)
-    return t === '.' || t === ','
-  }
+  const inBounds = (x: number, y: number) => x >= 0 && x < w && y >= 0 && y < h
+  const isWalkTile = (x: number, y: number) => !['w'].includes(T(x, y))
 
-  // --- base: grama com ruído ---
   for (let y = 0; y < h; y++) {
     const row: string[] = []
     for (let x = 0; x < w; x++) row.push(rnd() < 0.24 ? ',' : '.')
     grid.push(row)
   }
 
-  // --- lago ao sul (centro 48,54) ---
-  for (let y = 42; y < h; y++) {
-    for (let x = 36; x < w; x++) {
-      const dx = x - 48
-      const dy = (y - 54) * 1.15
-      const d = Math.sqrt(dx * dx + dy * dy) + (rnd() - 0.5) * 2.2
-      if (d < 6.4) setT(x, y, 'w')
-      else if (d < 8.8 && isGrass(x, y)) setT(x, y, 's')
+  // --- quatro biomas ---
+  // Areia (NE)
+  for (let y = 0; y < 64; y++) {
+    for (let x = 64; x < 128; x++) {
+      if (rnd() < 0.82) setT(x, y, 's')
+      else setT(x, y, rnd() < 0.5 ? ',' : '.')
     }
   }
 
-  // --- vale do fim: solo arenoso ---
-  for (let y = 21; y <= 43; y++) {
-    for (let x = 3; x <= 21; x++) {
-      if (rnd() < 0.3 && isGrass(x, y)) setT(x, y, 's')
-      else if (rnd() < 0.25) setT(x, y, ',')
+  // Névoa (SW): terreno úmido, capim e lagoas rasas.
+  for (let y = 64; y < 128; y++) {
+    for (let x = 0; x < 64; x++) {
+      if (rnd() < 0.12) setT(x, y, 'g')
+    }
+  }
+  const mistPonds = [
+    [12, 78, 7], [46, 78, 6], [10, 116, 6], [48, 114, 8], [42, 96, 5],
+  ] as const
+  for (const [cx, cy, r] of mistPonds) {
+    for (let y = cy - r - 2; y <= cy + r + 2; y++) {
+      for (let x = cx - r - 2; x <= cx + r + 2; x++) {
+        if (!inBounds(x, y)) continue
+        const d = Math.hypot(x - cx, (y - cy) * 1.15) + (rnd() - 0.5) * 1.5
+        if (d < r) setT(x, y, 'w')
+        else if (d < r + 1.8) setT(x, y, 's')
+      }
     }
   }
 
-  // --- capim alto na floresta ---
-  for (let y = 3; y <= 18; y++) {
-    for (let x = 4; x <= 58; x++) {
-      if (rnd() < 0.1 && isGrass(x, y)) setT(x, y, 'g')
+  // Terra (SE): solo seco/pedregoso.
+  for (let y = 64; y < 128; y++) {
+    for (let x = 64; x < 128; x++) {
+      const r = rnd()
+      setT(x, y, r < 0.46 ? 's' : r < 0.72 ? ',' : '.')
     }
   }
 
-  // --- caminhos (2 tiles de largura) ---
-  // E-W principal: y 32-33, x 16..48
-  for (let x = 16; x <= 48; x++) {
-    setT(x, 32, 'p')
-    setT(x, 33, 'p')
-  }
-  // N-S principal: x 32-33, y 16..46
-  for (let y = 16; y <= 46; y++) {
-    setT(32, y, 'p')
-    setT(33, y, 'p')
-  }
-
-  // --- praça da vila (pedra) ---
-  for (let y = 28; y <= 36; y++) {
-    for (let x = 28; x <= 36; x++) setT(x, y, 'c')
-  }
-
-  // --- flores na vila ---
-  for (let y = 24; y <= 40; y++) {
-    for (let x = 24; x <= 40; x++) {
-      if (T(x, y) === '.' && rnd() < 0.07) setT(x, y, '"')
+  // Folha (NW): capim mais denso.
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      if (rnd() < 0.09) setT(x, y, 'g')
     }
   }
 
-  // --- util: corredores que devem ficar livres de objetos ---
-  const inClearBand = (x: number, y: number) =>
-    (y >= 30 && y <= 35 && x >= 14 && x <= 50) ||
-    (x >= 30 && x <= 35 && y >= 14 && y <= 50)
+  const roadH = (y: number, x1: number, x2: number) => {
+    for (let x = x1; x <= x2; x++) {
+      setT(x, y, 'p')
+      setT(x, y + 1, 'p')
+    }
+  }
+  const roadV = (x: number, y1: number, y2: number) => {
+    for (let y = y1; y <= y2; y++) {
+      setT(x, y, 'p')
+      setT(x + 1, y, 'p')
+    }
+  }
 
+  // Estradas ligando vilas e fronteira central.
+  roadH(28, 28, 100)
+  roadH(64, 28, 100)
+  roadH(100, 28, 100)
+  roadV(28, 28, 100)
+  roadV(64, 28, 100)
+  roadV(100, 28, 100)
+
+  const villageRects = Object.values(VILLAGE_CENTERS).map((c) => ({
+    x1: c.x - 10, y1: c.y - 10, x2: c.x + 10, y2: c.y + 10,
+  }))
+  const inVillage = (x: number, y: number) =>
+    villageRects.some((v) => x >= v.x1 && x <= v.x2 && y >= v.y1 && y <= v.y2)
   const nearAnchor = (x: number, y: number, r: number) =>
     ALL_ANCHORS.some((a) => Math.abs(a.x - x) <= r && Math.abs(a.y - y) <= r)
 
-  const inVillage = (x: number, y: number) => x >= 23 && x <= 41 && y >= 23 && y <= 41
-  const inArena = (x: number, y: number) => x >= 4 && x <= 14 && y >= 27 && y <= 37
-
-  // --- espalhar objetos ---
-  const placeObject = (k: string, x: number, y: number) => {
+  const canPlace = (k: string, x: number, y: number) => {
     const [fw, fh] = OBJ_FOOTPRINT[k]
-    for (let oy = 0; oy < fh; oy++)
-      for (let ox = 0; ox < fw; ox++) blocked[(y + oy) * w + (x + ox)] = 1
-    objects.push({ k, x, y })
-  }
-  /** estruturas da vila: limpa decoração e coloca (permite praça) */
-  const placeStructure = (k: string, x: number, y: number) => {
-    const [fw, fh] = OBJ_FOOTPRINT[k]
-    for (let oy = 0; oy < fh; oy++)
+    for (let oy = 0; oy < fh; oy++) {
       for (let ox = 0; ox < fw; ox++) {
         const tx = x + ox, ty = y + oy
-        if (tx >= w || ty >= h) return false
-        const t = T(tx, ty)
-        if (t === 'w' || t === 'p' || blocked[ty * w + tx]) return false
-        if (t === '"') setT(tx, ty, ',')
+        if (!inBounds(tx, ty) || !isWalkTile(tx, ty) || blocked[ty * w + tx]) return false
+        if (T(tx, ty) === 'p' || T(tx, ty) === 'c') return false
       }
-    placeObject(k, x, y)
+    }
+    return true
+  }
+  const placeObject = (k: string, x: number, y: number, force = false) => {
+    const [fw, fh] = OBJ_FOOTPRINT[k]
+    if (!force && !canPlace(k, x, y)) return false
+    for (let oy = 0; oy < fh; oy++) {
+      for (let ox = 0; ox < fw; ox++) {
+        const tx = x + ox, ty = y + oy
+        if (!inBounds(tx, ty)) return false
+        blocked[ty * w + tx] = 1
+      }
+    }
+    objects.push({ k, x, y })
     return true
   }
 
-  // floresta densa ao norte
-  for (let y = 2; y <= 19; y++) {
-    for (let x = 3; x <= 58; x++) {
-      if (!isGrass(x, y) && T(x, y) !== 'g') continue
-      if (inClearBand(x, y) || nearAnchor(x, y, 3)) continue
-      if (rnd() < 0.16) placeObject(rnd() < 0.75 ? 'tree' : 'tree2', x, y)
+  const fountains: { x: number; y: number; village: VillageId }[] = []
+
+  const placeVillage = (id: VillageId) => {
+    const c = VILLAGE_CENTERS[id]
+
+    // Praça central caminhável.
+    for (let y = c.y - 4; y <= c.y + 4; y++) {
+      for (let x = c.x - 4; x <= c.x + 4; x++) setT(x, y, 'c')
     }
-  }
-  // campo de treinamento (leste): árvores esparsas
-  for (let y = 21; y <= 43; y++) {
-    for (let x = 44; x <= 62; x++) {
-      if (!isGrass(x, y)) continue
-      if (inClearBand(x, y) || nearAnchor(x, y, 3)) continue
-      if (rnd() < 0.06) placeObject('tree', x, y)
-      else if (rnd() < 0.05) placeObject('rock', x, y)
-      else if (rnd() < 0.05) setT(x, y, '"')
+    // Caminhos atravessam a praça.
+    roadH(c.y, c.x - 10, c.x + 10)
+    roadV(c.x, c.y - 10, c.y + 10)
+
+    const houses: [number, number][] = [
+      [c.x - 8, c.y - 7], [c.x + 5, c.y - 7],
+      [c.x - 8, c.y + 6], [c.x + 5, c.y + 6],
+    ]
+    for (const [x, y] of houses) placeObject('house', x, y, true)
+
+    const fx = c.x + 4, fy = c.y - 2
+    placeObject('fountain', fx, fy, true)
+    fountains.push({ x: (fx + 1) * 32, y: (fy + 1) * 32, village: id })
+
+    const r = 10
+    for (let i = c.x - r; i <= c.x + r; i++) {
+      const gate = i === c.x || i === c.x + 1
+      if (!gate) {
+        if (!blocked[(c.y - r) * w + i]) placeObject('fence', i, c.y - r, true)
+        if (!blocked[(c.y + r) * w + i]) placeObject('fence', i, c.y + r, true)
+      }
     }
-  }
-  // vale do fim: rochas
-  for (let y = 21; y <= 43; y++) {
-    for (let x = 3; x <= 21; x++) {
-      if (!isGrass(x, y) && T(x, y) !== 's' && T(x, y) !== ',') continue
-      if (inClearBand(x, y) || nearAnchor(x, y, 3) || inArena(x, y)) continue
-      if (rnd() < 0.1) placeObject('rock', x, y)
-      else if (rnd() < 0.05) placeObject('deadtree', x, y)
+    for (let i = c.y - r; i <= c.y + r; i++) {
+      const gate = i === c.y || i === c.y + 1
+      if (!gate) {
+        if (!blocked[i * w + (c.x - r)]) placeObject('fence', c.x - r, i, true)
+        if (!blocked[i * w + (c.x + r)]) placeObject('fence', c.x + r, i, true)
+      }
     }
-  }
-  // lago: margens com árvores raras
-  for (let y = 44; y <= 62; y++) {
-    for (let x = 36; x <= 62; x++) {
-      if (!isGrass(x, y)) continue
-      if (inClearBand(x, y) || nearAnchor(x, y, 3)) continue
-      if (rnd() < 0.05) placeObject('tree', x, y)
-      else if (rnd() < 0.04) setT(x, y, '"')
+
+    for (const [dx, dy] of [[-5, -5], [6, -5], [-5, 6], [6, 6]] as [number, number][]) {
+      placeObject('lantern', c.x + dx, c.y + dy, true)
     }
+    placeObject('sign', c.x, c.y + 9, true)
   }
-  // resto do mundo: bem esparso
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (!isGrass(x, y)) continue
-      if (inVillage(x, y) || inClearBand(x, y) || nearAnchor(x, y, 3) || inArena(x, y)) continue
+
+  ;(['folha', 'areia', 'nevoa', 'terra'] as VillageId[]).forEach(placeVillage)
+
+  // Mantém um único comerciante/NPC: Ichiraku continua na Folha.
+  placeObject('shop', 24, 20, true)
+  const shopNpc = { x: 25.5 * 32, y: 22.6 * 32 }
+
+  // Decoração regional, sem entupir vilas/estradas/âncoras.
+  for (let y = 2; y < h - 2; y++) {
+    for (let x = 2; x < w - 2; x++) {
+      if (inVillage(x, y) || nearAnchor(x, y, 3)) continue
+      if (T(x, y) === 'p' || T(x, y) === 'c' || T(x, y) === 'w') continue
+      if (blocked[y * w + x]) continue
+
+      const qx = x < 64 ? 0 : 1
+      const qy = y < 64 ? 0 : 1
       const r = rnd()
-      if (r < 0.03) placeObject('tree', x, y)
-      else if (r < 0.05) placeObject('rock', x, y)
-      else if (r < 0.09) setT(x, y, '"')
+      if (qx === 0 && qy === 0) {
+        if (r < 0.075) placeObject(rnd() < 0.75 ? 'tree' : 'tree2', x, y)
+        else if (r < 0.095) placeObject('rock', x, y)
+        else if (r < 0.13) setT(x, y, '"')
+      } else if (qx === 1 && qy === 0) {
+        if (r < 0.055) placeObject('rock', x, y)
+        else if (r < 0.072) placeObject('deadtree', x, y)
+      } else if (qx === 0 && qy === 1) {
+        if (r < 0.045) placeObject(rnd() < 0.7 ? 'tree2' : 'tree', x, y)
+        else if (r < 0.07) setT(x, y, 'g')
+      } else {
+        if (r < 0.082) placeObject('rock', x, y)
+        else if (r < 0.105) placeObject('deadtree', x, y)
+      }
     }
   }
 
-  // --- estruturas da vila ---
-  const HOUSES: [number, number][] = [[25, 25], [38, 25], [25, 38], [38, 38]]
-  for (const [hx, hy] of HOUSES) placeStructure('house', hx, hy)
-  placeStructure('shop', 29, 26)
-  placeStructure('fountain', 30, 31)
-
-  // cerca da vila com portões (caminhos cruzam)
-  for (let i = 24; i <= 40; i++) {
-    const gates = (x: number, y: number) => {
-      const isGate =
-        (y === 24 && (x === 32 || x === 33)) ||
-        (y === 40 && (x === 32 || x === 33)) ||
-        (x === 24 && (y === 32 || y === 33)) ||
-        (x === 40 && (y === 32 || y === 33))
-      return !isGate
-    }
-    if (gates(i, 24) && !blocked[24 * w + i]) placeObject('fence', i, 24)
-    if (gates(i, 40) && !blocked[40 * w + i]) placeObject('fence', i, 40)
-    if (gates(24, i) && !blocked[i * w + 24]) placeObject('fence', 24, i)
-    if (gates(40, i) && !blocked[i * w + 40]) placeObject('fence', 40, i)
-  }
-
-  // lanternas na praça
-  for (const [lx, ly] of [[27, 27], [37, 27], [27, 37], [37, 37]] as [number, number][]) {
-    if (!blocked[ly * w + lx]) placeObject('lantern', lx, ly)
-  }
-
-  // postes de treinamento no campo
-  for (const [px, py] of [[46, 28], [48, 34], [52, 26], [54, 38], [50, 31]] as [number, number][]) {
-    if (!blocked[py * w + px]) placeObject('post', px, py)
-  }
-
-  // placas nas entradas das zonas
-  for (const [sx, sy] of [[43, 31], [21, 31], [31, 21], [31, 43]] as [number, number][]) {
-    if (!blocked[sy * w + sx] && T(sx, sy) !== 'p') placeObject('sign', sx, sy)
+  // Área central de conflito, com postes e placas.
+  for (const [x, y] of [[58, 58], [70, 58], [58, 70], [70, 70], [64, 60], [64, 68]] as [number, number][]) {
+    if (!blocked[y * w + x] && T(x, y) !== 'p') placeObject('post', x, y)
   }
 
   const zones: Zone[] = [
-    { n: 'Vila da Folha', x1: 23, y1: 23, x2: 41, y2: 41, safe: true },
-    { n: 'Floresta Densa', x1: 0, y1: 0, x2: 63, y2: 20 },
-    { n: 'Lago da Vila', x1: 34, y1: 44, x2: 63, y2: 63 },
-    { n: 'Vale do Fim', x1: 0, y1: 21, x2: 22, y2: 43 },
-    { n: 'Campo de Treinamento', x1: 42, y1: 21, x2: 63, y2: 43 },
-    { n: 'Arredores da Vila', x1: 0, y1: 0, x2: 63, y2: 63 },
+    { n: 'Vila da Folha', x1: 18, y1: 18, x2: 38, y2: 38, safe: true, village: 'folha' },
+    { n: 'Vila da Areia', x1: 90, y1: 18, x2: 110, y2: 38, safe: true, village: 'areia' },
+    { n: 'Vila da Névoa', x1: 18, y1: 90, x2: 38, y2: 110, safe: true, village: 'nevoa' },
+    { n: 'Vila da Terra', x1: 90, y1: 90, x2: 110, y2: 110, safe: true, village: 'terra' },
+    { n: 'Fronteiras Shinobi', x1: 56, y1: 0, x2: 71, y2: 127 },
+    { n: 'Fronteiras Shinobi', x1: 0, y1: 56, x2: 127, y2: 71 },
+    { n: 'Florestas da Folha', x1: 0, y1: 0, x2: 63, y2: 63 },
+    { n: 'Deserto da Areia', x1: 64, y1: 0, x2: 127, y2: 63 },
+    { n: 'Pântanos da Névoa', x1: 0, y1: 64, x2: 63, y2: 127 },
+    { n: 'Montanhas da Terra', x1: 64, y1: 64, x2: 127, y2: 127 },
+    { n: 'Terras Neutras', x1: 0, y1: 0, x2: 127, y2: 127 },
   ]
 
+  // 188 mobs: ~4x o mapa original, espalhados pelos quatro territórios.
   const spawns: SpawnZone[] = [
-    { monster: 'bandido', count: 10, x1: 46, y1: 24, x2: 60, y2: 40 },
-    { monster: 'sapo', count: 5, x1: 45, y1: 41, x2: 61, y2: 44 },
-    { monster: 'gennin', count: 9, x1: 8, y1: 13, x2: 56, y2: 19 },
-    { monster: 'zetsu', count: 7, x1: 10, y1: 4, x2: 54, y2: 11 },
-    { monster: 'sapo', count: 5, x1: 56, y1: 46, x2: 62, y2: 58 },
-    { monster: 'zetsu', count: 4, x1: 36, y1: 46, x2: 40, y2: 58 },
-    { monster: 'zetsu', count: 7, x1: 14, y1: 22, x2: 20, y2: 42 },
-    { monster: 'boss', count: 1, x1: 9, y1: 32, x2: 9, y2: 32 },
+    // Folha / NW
+    { monster: 'bandido', count: 12, x1: 39, y1: 20, x2: 57, y2: 48 },
+    { monster: 'sapo', count: 10, x1: 5, y1: 42, x2: 17, y2: 57 },
+    { monster: 'gennin', count: 12, x1: 5, y1: 5, x2: 57, y2: 15 },
+    { monster: 'zetsu', count: 12, x1: 5, y1: 18, x2: 15, y2: 52 },
+    // Areia / NE
+    { monster: 'bandido', count: 12, x1: 70, y1: 20, x2: 88, y2: 48 },
+    { monster: 'sapo', count: 10, x1: 112, y1: 42, x2: 123, y2: 57 },
+    { monster: 'gennin', count: 12, x1: 70, y1: 5, x2: 123, y2: 15 },
+    { monster: 'zetsu', count: 12, x1: 113, y1: 18, x2: 123, y2: 52 },
+    // Névoa / SW
+    { monster: 'bandido', count: 12, x1: 39, y1: 78, x2: 57, y2: 108 },
+    { monster: 'sapo', count: 10, x1: 5, y1: 70, x2: 17, y2: 88 },
+    { monster: 'gennin', count: 12, x1: 5, y1: 113, x2: 57, y2: 123 },
+    { monster: 'zetsu', count: 12, x1: 5, y1: 76, x2: 15, y2: 110 },
+    // Terra / SE
+    { monster: 'bandido', count: 12, x1: 70, y1: 78, x2: 88, y2: 108 },
+    { monster: 'sapo', count: 10, x1: 112, y1: 70, x2: 123, y2: 88 },
+    { monster: 'gennin', count: 12, x1: 70, y1: 113, x2: 123, y2: 123 },
+    { monster: 'zetsu', count: 12, x1: 113, y1: 76, x2: 123, y2: 110 },
+    // Chefes na fronteira central
+    { monster: 'boss', count: 1, x1: 62, y1: 50, x2: 62, y2: 50 },
+    { monster: 'boss', count: 1, x1: 76, y1: 64, x2: 76, y2: 64 },
+    { monster: 'boss', count: 1, x1: 64, y1: 76, x2: 64, y2: 76 },
+    { monster: 'boss', count: 1, x1: 50, y1: 64, x2: 50, y2: 64 },
   ]
 
   return {
@@ -315,17 +369,17 @@ export function genWorld(): World {
     zones,
     spawns,
     blocked,
-    fountain: { x: 31 * 32, y: 32 * 32 },
-    shopNpc: { x: 30 * 32 + 16, y: 28 * 32 + 20 },
+    fountains,
+    fountain: fountains[0],
+    shopNpc,
   }
 }
 
-// zona pelo pixel (ordem importa)
 export function zoneAt(world: World, px: number, py: number): Zone {
   const tx = Math.floor(px / 32)
   const ty = Math.floor(py / 32)
   for (const z of world.zones) {
-    if (z.n === 'Arredores da Vila') continue
+    if (z.n === 'Terras Neutras') continue
     if (tx >= z.x1 && tx <= z.x2 && ty >= z.y1 && ty <= z.y2) return z
   }
   return world.zones[world.zones.length - 1]

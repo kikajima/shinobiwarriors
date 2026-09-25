@@ -3,13 +3,29 @@
 // ============================================================
 
 export type ElementId = 'fogo' | 'agua' | 'raio' | 'vento' | 'terra'
+export type VillageId = 'folha' | 'areia' | 'nevoa' | 'terra'
+
+export const VILLAGE_IDS: VillageId[] = ['folha', 'areia', 'nevoa', 'terra']
+export const VILLAGE_NAMES: Record<VillageId, string> = {
+  folha: 'Vila da Folha',
+  areia: 'Vila da Areia',
+  nevoa: 'Vila da Névoa',
+  terra: 'Vila da Terra',
+}
+export const VILLAGE_COLORS: Record<VillageId, string> = {
+  folha: '#63c967',
+  areia: '#e0b75b',
+  nevoa: '#68bde0',
+  terra: '#b48a60',
+}
 
 export interface MapData {
   w: number
   h: number
   tiles: string[]
   objects: { k: string; x: number; y: number }[]
-  zones: { n: string; x1: number; y1: number; x2: number; y2: number; safe?: boolean }[]
+  zones: { n: string; x1: number; y1: number; x2: number; y2: number; safe?: boolean; village?: VillageId }[]
+  fountains: { x: number; y: number; village: VillageId }[]
   fountain: { x: number; y: number }
   shopNpc: { x: number; y: number }
 }
@@ -18,7 +34,7 @@ export interface WelcomeData {
   id: number
   t: number
   online: number
-  self: { n: string; el: ElementId; lv: number; xp: number; gold: number; pot: number; x: number; y: number }
+  self: { n: string; el: ElementId; village: VillageId; lv: number; xp: number; gold: number; pot: number; x: number; y: number }
   map: MapData
   skills: { name: string; archetype: string; cd: number; ch: number; range: number }[]
   missions: { name: string; monster: string; need: number }[]
@@ -30,6 +46,7 @@ export interface RosterEnt {
   n: string
   lv: number
   el: ElementId
+  v: VillageId
   pal: number
 }
 
@@ -39,6 +56,7 @@ export interface NfEnt {
   n?: string
   lv: number
   el?: ElementId
+  v?: VillageId
   pal?: number
   t?: string
 }
@@ -105,6 +123,7 @@ export interface KillMsg {
   mlv: number
   g: number
   xp: number
+  pvp?: number
 }
 
 export interface MissionMsg {
@@ -126,7 +145,7 @@ export interface ShopMsg {
 }
 
 export const TILE = 32
-export const MAP_SIZE = 64
+export const MAP_SIZE = 128
 
 // fórmulas espelhadas do servidor
 export const maxHpOf = (lv: number) => 90 + 28 * (lv - 1)

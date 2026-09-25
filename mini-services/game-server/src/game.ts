@@ -1,10 +1,9 @@
-import { BASIC, CRIT_CHANCE, CRIT_MULT, MAX_LEVEL, MONSTERS, MISSIONS, BOT_NAMES, POTION, PLAYER_SPEED, SKILLS, TIPS, maxChOf, maxHpOf, atkOf, xpNeedOf, } from './data';
-import { genWorld, walkable, zoneAt } from './world';
+import { BASIC, CRIT_CHANCE, CRIT_MULT, MAX_LEVEL, MONSTERS, MISSIONS, BOT_NAMES, POTION, PLAYER_SPEED, SKILLS, TIPS, VILLAGE_IDS, maxChOf, maxHpOf, atkOf, xpNeedOf, } from './data';
+import { genWorld, walkable, zoneAt, VILLAGE_SPAWNS } from './world';
 import { BotBrain, botGreetHuman, scheduleBotReplies, BOT_TARGET } from './bots';
 import { loadSave, saveReal } from './persist';
 const EL_LIST = ['fogo', 'agua', 'raio', 'vento', 'terra'];
 const BOT_NAMES_POOL = BOT_NAMES;
-const VILLAGE_SPAWN = { x: 32.5 * 32, y: 35 * 32 };
 const rnd = Math.random;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const isFiniteNumber = value => typeof value === 'number' && Number.isFinite(value);
@@ -36,12 +35,13 @@ export class Game {
    for(const n of BOT_NAMES_POOL)if(!used.has(n.toLowerCase()))pool.push(n);
    if(!pool.length)return null;
    const name=pool[Math.floor(rnd()*pool.length)],el=EL_LIST[Math.floor(rnd()*5)],r=rnd(),lv=r<.4?1+Math.floor(rnd()*5):r<.75?6+Math.floor(rnd()*4):10+Math.floor(rnd()*5);
-   const spawn=this.findWalkableNear(VILLAGE_SPAWN.x,VILLAGE_SPAWN.y,100);
-   const ent={id:this.nextId++,kind:'bot',name,el,pal:Math.floor(rnd()*64),lv,xp:Math.floor(rnd()*xpNeedOf(lv)),hp:maxHpOf(lv),ch:maxChOf(lv),gold:50+Math.floor(rnd()*400),pot:3+Math.floor(rnd()*3),x:spawn.x,y:spawn.y,dir:0,dead:false,known:new Map(),lastMoveAt:Date.now(),lastCombatAt:0,cds:[0,0,0,0,0,0],mi:0,mp:0,lastChatAt:0,lastHealAt:0};
+   const botIndex=[...this.players.values()].filter(p=>p.kind==='bot').length,village=VILLAGE_IDS[botIndex%VILLAGE_IDS.length];
+   const home=VILLAGE_SPAWNS[village],spawn=this.findWalkableNear(home.x,home.y,100);
+   const ent={id:this.nextId++,kind:'bot',name,el,village,pal:Math.floor(rnd()*64),lv,xp:Math.floor(rnd()*xpNeedOf(lv)),hp:maxHpOf(lv),ch:maxChOf(lv),gold:50+Math.floor(rnd()*400),pot:3+Math.floor(rnd()*3),x:spawn.x,y:spawn.y,dir:0,dead:false,known:new Map(),lastMoveAt:Date.now(),lastCombatAt:0,cds:[0,0,0,0,0,0],mi:0,mp:0,lastChatAt:0,lastHealAt:0};
    ent.bot=new BotBrain(this,ent);this.players.set(ent.id,ent);return ent;
  }
  sanitizeName(raw){let n=(raw||'').normalize('NFC').replace(/[\u0000-\u001f\u007f]/g,'').trim().replace(/\s+/g,' ');return n.replace(/[^A-Za-z0-9À-ÿ_\-\. ]/g,'').slice(0,14)}
- addHuman(socket,rawName,el){
+ addHuman(socket,rawName,el,requestedVillage){
    const existingId=socket.data?.pid;
    if(typeof existingId==='number'&&this.players.has(existingId))return{ok:false,error:'Você já está conectado.'};
    const name=this.sanitizeName(rawName);
@@ -57,16 +57,20 @@ export class Game {
        suffix++;
      }
    }
-   const saved=this.saved[finalName.toLowerCase()],lv=saved?saved.lv:1,spawn=this.findWalkableNear(VILLAGE_SPAWN.x,VILLAGE_SPAWN.y,20);
-   const ent={id:this.nextId++,kind:'human',name:finalName,el,pal:Math.floor(rnd()*64),lv,xp:saved?saved.xp:0,hp:maxHpOf(lv),ch:maxChOf(lv),gold:saved?saved.gold:80,pot:saved?saved.pot:POTION.start,x:spawn.x,y:spawn.y,dir:0,dead:false,socket,known:new Map(),lastMoveAt:Date.now(),lastCombatAt:0,cds:[0,0,0,0,0,0],mi:0,mp:0,lastChatAt:0,lastHealAt:0};
+   const saved=this.saved[finalName.toLowerCase()],lv=saved?saved.lv:1;
+   const requested=VILLAGE_IDS.includes(requestedVillage)?requestedVillage:'folha';
+   const village=saved?.village&&VILLAGE_IDS.includes(saved.village)?saved.village:requested;
+   const home=VILLAGE_SPAWNS[village],spawn=this.findWalkableNear(home.x,home.y,20);
+   const ent={id:this.nextId++,kind:'human',name:finalName,el,village,pal:Math.floor(rnd()*64),lv,xp:saved?saved.xp:0,hp:maxHpOf(lv),ch:maxChOf(lv),gold:saved?saved.gold:80,pot:saved?saved.pot:POTION.start,x:spawn.x,y:spawn.y,dir:0,dead:false,socket,known:new Map(),lastMoveAt:Date.now(),lastCombatAt:0,cds:[0,0,0,0,0,0],mi:0,mp:0,lastChatAt:0,lastHealAt:0};
    this.players.set(ent.id,ent);socket.data.pid=ent.id;
-   socket.emit('welcome',{id:ent.id,t:Date.now(),online:this.players.size,self:{n:ent.name,el,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot,x:ent.x,y:ent.y},map:{w:this.world.w,h:this.world.h,tiles:this.world.tiles,objects:this.world.objects,zones:this.world.zones,fountain:this.world.fountain,shopNpc:this.world.shopNpc},skills:SKILLS[el].map(s=>({name:s.name,archetype:s.archetype,cd:s.cd,ch:s.ch,range:s.range})),missions:MISSIONS.map(m=>({name:m.name,monster:m.monster,need:m.need})),roster:[...this.players.values()].map(p=>({id:p.id,n:p.name,lv:p.lv,el:p.el,pal:p.pal}))});
-   this.broadcast('pJoin',{id:ent.id,n:ent.name,lv:ent.lv,el:ent.el,pal:ent.pal});this.sys(`${ent.name} entrou no jogo.`);botGreetHuman(this,ent);return{ok:true};
+   socket.emit('welcome',{id:ent.id,t:Date.now(),online:this.players.size,self:{n:ent.name,el,village:ent.village,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot,x:ent.x,y:ent.y},map:{w:this.world.w,h:this.world.h,tiles:this.world.tiles,objects:this.world.objects,zones:this.world.zones,fountains:this.world.fountains,fountain:this.world.fountain,shopNpc:this.world.shopNpc},skills:SKILLS[el].map(s=>({name:s.name,archetype:s.archetype,cd:s.cd,ch:s.ch,range:s.range})),missions:MISSIONS.map(m=>({name:m.name,monster:m.monster,need:m.need})),roster:[...this.players.values()].map(p=>({id:p.id,n:p.name,lv:p.lv,el:p.el,v:p.village,pal:p.pal}))});
+   this.broadcast('pJoin',{id:ent.id,n:ent.name,lv:ent.lv,el:ent.el,v:ent.village,pal:ent.pal});this.sys(`${ent.name} entrou no jogo.`);botGreetHuman(this,ent);return{ok:true};
  }
- removeHuman(socket){const ent=this.players.get(socket.data?.pid);if(!ent)return;this.players.delete(ent.id);this.broadcast('pLeave',{id:ent.id});this.sys(`${ent.name} saiu do jogo.`);this.saved[ent.name.toLowerCase()]={el:ent.el,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot};saveReal(this.saved)}
+ removeHuman(socket){const ent=this.players.get(socket.data?.pid);if(!ent)return;this.players.delete(ent.id);this.broadcast('pLeave',{id:ent.id});this.sys(`${ent.name} saiu do jogo.`);this.saved[ent.name.toLowerCase()]={el:ent.el,village:ent.village,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot};saveReal(this.saved)}
  entOf(socket){return this.players.get(socket.data?.pid)}
  canPvp(attacker,target){
    if(!attacker||!target||attacker.id===target.id||attacker.dead||target.dead)return false;
+   if(attacker.village===target.village)return false;
    return !zoneAt(this.world,attacker.x,attacker.y).safe&&!zoneAt(this.world,target.x,target.y).safe;
  }
  hitPlayer(target,attacker,base,mult=1,elemental=false){
@@ -159,9 +163,9 @@ export class Game {
  progressMission(ent,monsterType){const mi=MISSIONS[ent.mi];if(!mi||(mi.monster!=='any'&&mi.monster!==monsterType))return;ent.mp++;if(ent.mp>=mi.need){ent.gold+=mi.gold;this.gainXp(ent,mi.xp);ent.socket?.emit('mission',{i:ent.mi,done:true,name:mi.name,gold:mi.gold,xp:mi.xp});this.sys(`${ent.name} completou a missão "${mi.name}"!`);if(mi.repeat)ent.mp=0;else{ent.mi=Math.min(ent.mi+1,MISSIONS.length-1);ent.mp=0}const next=MISSIONS[ent.mi];ent.socket?.emit('mission',{i:ent.mi,name:next.name,monster:next.monster,need:next.need,prog:0})}else ent.socket?.emit('mission',{i:ent.mi,prog:ent.mp,need:mi.need,name:mi.name})}
  usePotion(ent){if(ent.dead||ent.pot<=0)return false;const now=Date.now();if(now<ent.cds[5])return false;ent.cds[5]=now+POTION.cd;ent.pot--;const heal=Math.round(maxHpOf(ent.lv)*POTION.healPct);ent.hp=Math.min(maxHpOf(ent.lv),ent.hp+heal);ent.lastCombatAt=now;this.emitNear(ent.x,ent.y,800,'dmg',{x:ent.x,y:ent.y-26,v:heal,h:1});this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});return true}
  damagePlayer(ent,dmg,src){if(ent.dead||zoneAt(this.world,ent.x,ent.y).safe)return;if(ent.el==='terra')dmg*=.84;ent.hp-=Math.round(dmg);ent.lastCombatAt=Date.now();this.emitNear(ent.x,ent.y,900,'dmg',{tid:ent.id,x:ent.x,y:ent.y-30,v:Math.round(dmg),c:0,tp:1});if(ent.hp<=0){ent.hp=0;ent.dead=true;this.forgetEntity(ent.id);this.emitNear(ent.x,ent.y,1000,'fx',{k:'pdeath',x:ent.x,y:ent.y});this.sys(`${ent.name} foi derrotado por ${src.name}!`);if(ent.kind==='human')ent.socket?.emit('dead',{by:src.name});else ent.bot?.onDeath(src)}}
- respawnPlayer(ent){if(!ent.dead)return;ent.dead=false;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);const spawn=this.findWalkableNear(VILLAGE_SPAWN.x,VILLAGE_SPAWN.y,60);ent.x=spawn.x;ent.y=spawn.y;ent.cds=[0,0,0,0,0,0];if(ent.kind==='human')ent.socket?.emit('revived',{x:ent.x,y:ent.y})}
+ respawnPlayer(ent){if(!ent.dead)return;ent.dead=false;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);const home=VILLAGE_SPAWNS[ent.village]||VILLAGE_SPAWNS.folha,spawn=this.findWalkableNear(home.x,home.y,60);ent.x=spawn.x;ent.y=spawn.y;ent.cds=[0,0,0,0,0,0];if(ent.kind==='human')ent.socket?.emit('revived',{x:ent.x,y:ent.y})}
  handleChat(socket,msg){const ent=this.entOf(socket);if(!ent)return;const now=Date.now();if(now-ent.lastChatAt<1200)return;ent.lastChatAt=now;const text=String(msg?.text||'').slice(0,120).trim();if(!text)return;this.chatOut(ent,text);scheduleBotReplies(this,ent,text)}
- handleInteract(socket){const ent=this.entOf(socket);if(!ent||ent.dead)return;const now=Date.now(),f=this.world.fountain;if(dist(ent,f)<100){if(now-ent.lastHealAt>4000){ent.lastHealAt=now;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});socket.emit('sys',{t:'Você recuperou suas forças na fonte da vila.'})}return}if(dist(ent,this.world.shopNpc)<100)socket.emit('shop',{open:true,gold:ent.gold,pot:ent.pot,price:POTION.price})}
+ handleInteract(socket){const ent=this.entOf(socket);if(!ent||ent.dead)return;const now=Date.now(),f=this.world.fountains.find(q=>dist(ent,q)<100);if(f){if(now-ent.lastHealAt>4000){ent.lastHealAt=now;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});socket.emit('sys',{t:'Você recuperou suas forças na fonte da vila.'})}return}if(dist(ent,this.world.shopNpc)<100)socket.emit('shop',{open:true,gold:ent.gold,pot:ent.pot,price:POTION.price})}
  handleBuyPotion(socket){const ent=this.entOf(socket);if(!ent||dist(ent,this.world.shopNpc)>140)return;if(ent.pot>=POTION.max){socket.emit('sys',{t:'Você já está carregando poções demais.'});return}if(ent.gold<POTION.price){socket.emit('sys',{t:'Ryō insuficiente! Cace monstros para ganhar mais.'});return}ent.gold-=POTION.price;ent.pot++;socket.emit('shop',{open:true,gold:ent.gold,pot:ent.pot,price:POTION.price});socket.emit('sys',{t:'Poção comprada! Aperte Q para usar em combate.'})}
  tick(){const dt=.05,now=Date.now();this.tickCount++;this.updateMonsters(dt,now);this.updateProjectiles(dt);this.updateRegen(dt,now);for(const p of this.players.values())if(p.bot)p.bot.think(dt,now);this.updateBotLifecycle(now);this.sendSnapshots(now);if(now>this.lastTip){this.lastTip=now+90000+rnd()*60000;this.sys(TIPS[Math.floor(rnd()*TIPS.length)])}if(now-this.lastSave>30000){this.lastSave=now;for(const p of this.players.values())if(p.kind==='human')this.saved[p.name.toLowerCase()]={el:p.el,lv:p.lv,xp:p.xp,gold:p.gold,pot:p.pot};saveReal(this.saved)}}
  updateMonsters(dt,now){for(const m of this.monsters.values()){if(m.dead){if(now>=m.respawnAt){m.dead=false;m.hp=m.maxHp;m.aggroId=null;m.burnUntil=0;m.burnNextAt=0;m.burnDamage=0;m.burnOwnerId=null;m.slowUntil=0;m.stunUntil=0;m.x=m.spawnX+(rnd()-.5)*60;m.y=m.spawnY+(rnd()-.5)*60;if(!walkable(this.world,m.x,m.y)){m.x=m.spawnX;m.y=m.spawnY}if(m.boss)this.sys('O Zetsu Ancião surgiu no Vale do Fim!')}continue}
@@ -189,7 +193,7 @@ if(m.boss&&m.slamPending&&now>=m.slamPending.at){const sp=m.slamPending;m.slamPe
  }
  updateProjectiles(dt){for(const pr of[...this.projectiles.values()]){pr.x+=pr.vx*dt;pr.y+=pr.vy*dt;pr.ttl-=dt;let dead=pr.ttl<=0||!walkable(this.world,pr.x,pr.y);if(!dead){const owner=this.players.get(pr.owner);for(const m of this.monsters.values())if(!m.dead&&!pr.hitIds.has(m.id)&&dist(m,pr)<m.radius+pr.radius){pr.hitIds.add(m.id);if(owner)this.hitMonster(m,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}if(!dead&&owner){for(const p of this.players.values()){if(!this.canPvp(owner,p)||pr.hitIds.has(p.id)||dist(p,pr)>=PLAYER_HIT_RADIUS+pr.radius)continue;pr.hitIds.add(p.id);this.hitPlayer(p,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}}}if(dead)this.projectiles.delete(pr.id)}}
  updateRegen(dt,now){for(const p of this.players.values()){const maxCh=maxChOf(p.lv),maxHp=maxHpOf(p.lv);if(!p.dead){p.ch=Math.min(maxCh,p.ch+5.5*dt);if(now-p.lastCombatAt>6000)p.hp=Math.min(maxHp,p.hp+2.2*dt)}}}
- updateBotLifecycle(now){if(now<this.lastLifecycle)return;this.lastLifecycle=now+25000;const bots=[...this.players.values()].filter(p=>p.kind==='bot');if(bots.length>BOT_TARGET-4&&rnd()<.55){const b=bots[Math.floor(rnd()*bots.length)];if(b&&!b.bot?.inCombat()){if(rnd()<.45)b.bot?.sayFarewell();this.players.delete(b.id);this.forgetEntity(b.id);this.broadcast('pLeave',{id:b.id});this.sys(`${b.name} saiu do jogo.`)}}else if(bots.length<BOT_TARGET+3&&rnd()<.6){const b=this.addBot();if(b){this.broadcast('pJoin',{id:b.id,n:b.name,lv:b.lv,el:b.el,pal:b.pal});this.sys(`${b.name} entrou no jogo.`);if(rnd()<.5)b.bot?.sayJoin()}}}
+ updateBotLifecycle(now){if(now<this.lastLifecycle)return;this.lastLifecycle=now+25000;const bots=[...this.players.values()].filter(p=>p.kind==='bot');if(bots.length>BOT_TARGET-4&&rnd()<.55){const b=bots[Math.floor(rnd()*bots.length)];if(b&&!b.bot?.inCombat()){if(rnd()<.45)b.bot?.sayFarewell();this.players.delete(b.id);this.forgetEntity(b.id);this.broadcast('pLeave',{id:b.id});this.sys(`${b.name} saiu do jogo.`)}}else if(bots.length<BOT_TARGET+3&&rnd()<.6){const b=this.addBot();if(b){this.broadcast('pJoin',{id:b.id,n:b.name,lv:b.lv,el:b.el,v:b.village,pal:b.pal});this.sys(`${b.name} entrou no jogo.`);if(rnd()<.5)b.bot?.sayJoin()}}}
  sendSnapshots(now){
    const view=1080,metaRefresh=4000;
    for(const h of this.players.values()){
@@ -202,7 +206,7 @@ if(m.boss&&m.slamPending&&now>=m.slamPending.at){const sp=m.slamPending;m.slamPe
        p.push([e.id,Math.round(e.x),Math.round(e.y),e.dir,Math.round(e.hp),e.lv]);
        const lastMeta=known.get(e.id)||0;
        if(now-lastMeta>=metaRefresh){
-         nf.push({k:'p',id:e.id,n:e.name,lv:e.lv,el:e.el,pal:e.pal});
+         nf.push({k:'p',id:e.id,n:e.name,lv:e.lv,el:e.el,v:e.village,pal:e.pal});
          known.set(e.id,now);
        }
      }
