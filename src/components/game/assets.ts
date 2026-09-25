@@ -7,11 +7,14 @@ import {
   OBJECT_FRAMES,
   PLAYER_FIRE_ATLAS_URL,
   PLAYER_FIRE_ACTIONS_URL,
+  PLAYER_FIRE_8DIR_URL,
   PLAYER_WATER_ATLAS_URL,
   PLAYER_LIGHTNING_ATLAS_URL,
   PLAYER_WIND_ATLAS_URL,
   PLAYER_EARTH_ATLAS_URL,
   PLAYER_FRAMES,
+  PLAYER_FIRE_IDLE_8DIR,
+  PLAYER_FIRE_WALK_8DIR,
   type PlayerAnimName,
   TERRAIN_ATLAS_URL,
   TERRAIN_FRAMES,
@@ -20,6 +23,8 @@ import {
 
 export interface PlayerSpriteSet {
   move: HTMLCanvasElement[][]
+  idle?: HTMLCanvasElement[][]
+  directions?: 4 | 8
   attack?: HTMLCanvasElement[][]
   cast?: HTMLCanvasElement[][]
   hurt?: HTMLCanvasElement[][]
@@ -299,6 +304,10 @@ async function loadAtlasArt(): Promise<GameArt> {
     loadImage(TERRAIN_ATLAS_URL),
     loadImage(OBJECT_ATLAS_URL),
   ])
+  const fire8DirAtlas = await loadImage(PLAYER_FIRE_8DIR_URL).catch((error) => {
+    console.warn('[art] Fogo 8-dir indisponível; usando atlas 4-dir anterior.', error)
+    return null
+  })
   const fireActionsAtlas = await loadImage(PLAYER_FIRE_ACTIONS_URL).catch((error) => {
     console.warn('[art] ações reais do Fogo indisponíveis; usando animações derivadas.', error)
     return null
@@ -325,16 +334,22 @@ async function loadAtlasArt(): Promise<GameArt> {
   for (const [element, atlas] of playerAtlases) {
     if (!atlas) continue
     const move = cropMatrix(atlas, PLAYER_FRAMES)
-    if (element === 'fogo') {
+    if (element === 'fogo' && fire8DirAtlas) {
+      players.fogo = {
+        directions: 8,
+        idle: cropMatrix(fire8DirAtlas, PLAYER_FIRE_IDLE_8DIR),
+        move: cropMatrix(fire8DirAtlas, PLAYER_FIRE_WALK_8DIR),
+      }
+    } else if (element === 'fogo') {
       const attackPose = fireActionsAtlas
         ? cropFrame(fireActionsAtlas, { x: 0, y: 0, w: 48, h: 40 })
         : null
       const hurtPose = fireActionsAtlas
         ? cropFrame(fireActionsAtlas, { x: 48, y: 0, w: 48, h: 40 })
         : null
-      players.fogo = buildFireCombatSet(move, attackPose, hurtPose)
+      players.fogo = { directions: 4, ...buildFireCombatSet(move, attackPose, hurtPose) }
     } else {
-      players[element] = { move }
+      players[element] = { directions: 4, move }
     }
   }
 

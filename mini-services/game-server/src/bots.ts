@@ -11,6 +11,7 @@ import { GRIND_ANCHORS, ZONE_ANCHORS, tileWalkable, walkable, type World } from 
 
 const rnd = Math.random
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
+const dir8 = (dx: number, dy: number): number => { const oct=(Math.round(Math.atan2(dy,dx)/(Math.PI/4))+8)%8; return (oct+6)%8 }
 const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
 
 export const BOT_TARGET = 30
@@ -373,8 +374,7 @@ export class BotBrain {
     const d = Math.hypot(dx, dy)
     if (d < 2 || step <= 0) return
     const sx = (dx / d) * step, sy = (dy / d) * step
-    if (Math.abs(dx) > Math.abs(dy)) ent.dir = dx > 0 ? 3 : 2
-    else ent.dir = dy > 0 ? 0 : 1
+    ent.dir = dir8(dx, dy)
 
     if (this.game.canStand(ent.x + sx, ent.y + sy)) {
       ent.x += sx; ent.y += sy

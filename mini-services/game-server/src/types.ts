@@ -19,7 +19,7 @@ export interface PlayerEnt {
   pot: number
   x: number
   y: number
-  dir: number // 0=baixo 1=cima 2=esquerda 3=direita
+  dir: number // 0=baixo 1=baixo-esq 2=esq 3=cima-esq 4=cima 5=cima-dir 6=dir 7=baixo-dir
   dead: boolean
   socket?: any
   bot?: BotBrain

@@ -9,6 +9,7 @@ export const TERRAIN_ATLAS_URL = '/game/gba/terrain.png'
 export const OBJECT_ATLAS_URL = '/game/gba/objects.png'
 export const PLAYER_FIRE_ATLAS_URL = '/game/gba/player-fire.png?v=fire-real-v1'
 export const PLAYER_FIRE_ACTIONS_URL = '/game/gba/player-fire-actions.png?v=fire-real-v1'
+export const PLAYER_FIRE_8DIR_URL = '/game/gba/player-fire-8dir.png?v=2776b46f'
 export const PLAYER_WATER_ATLAS_URL = '/game/gba/player-water.png?v=players-v1'
 export const PLAYER_LIGHTNING_ATLAS_URL = '/game/gba/player-lightning.png?v=players-v1'
 export const PLAYER_WIND_ATLAS_URL = '/game/gba/player-wind.png?v=players-v1'
@@ -96,6 +97,25 @@ export type PlayerAnimName = 'move' | 'attack' | 'cast' | 'hurt'
 export const PLAYER_FRAMES: AtlasFrame[][] = Array.from({ length: 4 }, (_, dir) =>
   Array.from({ length: 3 }, (_, frame) => ({
     x: frame * PLAYER_FRAME_W,
+    y: dir * PLAYER_FRAME_H,
+    w: PLAYER_FRAME_W,
+    h: PLAYER_FRAME_H,
+  })),
+)
+
+
+/**
+ * Fogo 8-direções: atlas técnico 160x320.
+ * Linhas: down, down-left, left, up-left, up, up-right, right, down-right.
+ * Coluna 0 = idle; colunas 1..4 = caminhada.
+ */
+export const PLAYER_FIRE_IDLE_8DIR: AtlasFrame[][] = Array.from({ length: 8 }, (_, dir) => [
+  { x: 0, y: dir * PLAYER_FRAME_H, w: PLAYER_FRAME_W, h: PLAYER_FRAME_H },
+])
+
+export const PLAYER_FIRE_WALK_8DIR: AtlasFrame[][] = Array.from({ length: 8 }, (_, dir) =>
+  Array.from({ length: 4 }, (_, frame) => ({
+    x: (frame + 1) * PLAYER_FRAME_W,
     y: dir * PLAYER_FRAME_H,
     w: PLAYER_FRAME_W,
     h: PLAYER_FRAME_H,

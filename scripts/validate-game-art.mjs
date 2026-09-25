@@ -6,6 +6,7 @@ const expected = [
   ['public/game/gba/terrain.png', 256, 128],
   ['public/game/gba/objects.png', 512, 256],
   ['public/game/gba/player-fire.png', 96, 160],
+  ['public/game/gba/player-fire-8dir.png', 160, 320],
   ['public/game/gba/player-fire-actions.png', 96, 40],
   ['public/game/gba/player-water.png', 96, 160],
   ['public/game/gba/player-lightning.png', 96, 160],
@@ -48,6 +49,7 @@ console.log(`[art] OK ${used.length} referências de terreno apontam apenas para
 
 const playerHashes = {
   'public/game/gba/player-fire.png': '146786e840083b7bfdc5429c04b6345939503605d9de33ba18e1f1a8c450a355',
+  'public/game/gba/player-fire-8dir.png': '2776b46f6a912fd1867e8d0007b20e500c8463b1995ddfbd05ad272a192fae02',
   'public/game/gba/player-fire-actions.png': '94b9aa775c519bdd2f3ff00308e7860f8797f2a64f83cc25574b0f3fc2da8155',
   'public/game/gba/player-water.png': 'a0d469f9eaf4f5c4b79759bb08cbc78ccd803f65cd4a32644c1b5d20c469ef9c',
   'public/game/gba/player-lightning.png': '8aaef7d5fb8bbf075d4419ac711a4ef1da31ee51929cde85e36dbce7ce060380',

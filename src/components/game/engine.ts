@@ -215,16 +215,28 @@ export class GameEngine {
         if (!s) {
             const atlasSet = this.playerArt[el];
             // Durante a migração GBA a paleta procedural segue como fallback.
-            s = atlasSet?.move ?? buildCharSprites(el, pal);
+            s = atlasSet?.directions === 4 ? atlasSet.move : buildCharSprites(el, pal);
             this.chars.set(key, s);
         }
         return s;
     }
+    direction8(dx: number, dy: number): number {
+        if (dx === 0 && dy === 0) return this.selfDir;
+        const oct = (Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8;
+        return (oct + 6) % 8;
+    }
+    dir8To4(dir: number): number {
+        const d = ((Math.round(dir) % 8) + 8) % 8;
+        if (d === 0) return 0;
+        if (d === 4) return 1;
+        if (d >= 1 && d <= 3) return 2;
+        return 3;
+    }
     playerFrame(ent: Entity, now: number): HTMLCanvasElement {
         const el = ent.el || 'fogo';
-        const dir = Math.max(0, Math.min(3, ent.dir));
-        const moveFrame = ent.moving ? (Math.floor(ent.animT / .16) % 2) + 1 : 0;
+        const rawDir = Math.max(0, Math.min(7, ent.dir));
         const set = this.playerArt[el];
+        const dir = set?.directions === 8 ? rawDir : this.dir8To4(rawDir);
 
         if (set) {
             const action = ent.action;
@@ -241,10 +253,21 @@ export class GameEngine {
             } else if (action) {
                 ent.action = null;
             }
-            return set.move[dir][moveFrame];
+
+            if (!ent.moving && set.idle?.[dir]?.[0]) return set.idle[dir][0];
+
+            const frames = set.move[dir];
+            if (ent.moving) {
+                if (set.idle) return frames[Math.floor(ent.animT / .105) % frames.length];
+                const walkCount = Math.max(1, frames.length - 1);
+                return frames[1 + (Math.floor(ent.animT / .16) % walkCount)] || frames[0];
+            }
+            return frames[0];
         }
 
-        return this.charSprites(el, ent.pal)[dir][moveFrame];
+        const d4 = this.dir8To4(rawDir);
+        const moveFrame = ent.moving ? (Math.floor(ent.animT / .16) % 2) + 1 : 0;
+        return this.charSprites(el, ent.pal)[d4][moveFrame];
     }
     triggerAction(id: number, action: PlayerAnimName, duration: number, now = performance.now()) {
         const ent = this.entities.get(id);
@@ -378,10 +401,10 @@ export class GameEngine {
     burstDeath(x,y,boss){const cols=boss?['#e8e4da','#c03030','#8a2020','#5a6a4e']:['#b8b2a8','#8f897d','#6a6a72','#4a4a52'],n=boss?46:24;for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,s=40+Math.random()*110;this.particles.push({x:x+(Math.random()-.5)*18,y:y+(Math.random()-.5)*24,vx:Math.cos(a)*s,vy:Math.sin(a)*s-60,life:450+Math.random()*450,maxLife:900,size:2+Math.random()*3,color:cols[Math.floor(Math.random()*cols.length)],grav:200,kind:'rock'});}}
     getAim(){if(this.input.hasRecentMouse()){const rect=this.canvas.getBoundingClientRect();return{x:this.camX+(this.input.state.aimX-rect.width/2)/this.zoom,y:this.camY+(this.input.state.aimY-rect.height/2)/this.zoom};}const t=this.findTarget(620);if(t)return{x:t.x,y:t.y-6};const d=[[0,1],[0,-1],[-1,0],[1,0]][this.selfDir]||[0,1];return{x:this.selfX+d[0]*190,y:this.selfY+d[1]*190};}
     findTarget(range: number): Entity | null {let best: Entity | null=null,bestD=Infinity;for(const e of this.entities.values()){if(e.kind!=='monster'||e.id===this.selfId)continue;const d=Math.hypot(e.x-this.selfX,e.y-this.selfY);if(d<range&&d<bestD){best=e;bestD=d;}}return best;}
-    basicAttack(){var _a;const now=performance.now();if(now<this.basicNext||((_a=this.you)===null||_a===void 0?void 0:_a.dm))return;this.basicNext=now+BASIC_CD;const aim=this.getAim();net.attack(aim.x,aim.y);this.triggerAction(this.selfId,'attack',250,now);this.slashes.push({x:this.selfX,y:this.selfY,ang:Math.atan2(aim.y-this.selfY,aim.x-this.selfX),until:now+170});if(Math.abs(aim.x-this.selfX)>Math.abs(aim.y-this.selfY))this.selfDir=aim.x>this.selfX?3:2;else this.selfDir=aim.y>this.selfY?0:1;}
-    castSkill(idx){var _a;const now=performance.now();if((_a=this.you)===null||_a===void 0?void 0:_a.dm)return;const s=this.welcome.skills[idx];if(!s||now<this.localCdEnds[1+idx])return;if(this.you&&this.you.ch<s.ch){this.floatTexts.push({x:this.selfX,y:this.selfY-34,vy:-40,life:800,text:'Chakra insuficiente!',color:'#9bd9f6',crit:false});return;}this.localCdEnds[1+idx]=now+s.cd;if(this.you)this.you.ch-=s.ch;const aim=this.getAim();net.skill(idx,aim.x,aim.y);this.triggerAction(this.selfId,'cast',420,now);if(Math.abs(aim.x-this.selfX)>Math.abs(aim.y-this.selfY))this.selfDir=aim.x>this.selfX?3:2;else this.selfDir=aim.y>this.selfY?0:1;}
+    basicAttack(){var _a;const now=performance.now();if(now<this.basicNext||((_a=this.you)===null||_a===void 0?void 0:_a.dm))return;this.basicNext=now+BASIC_CD;const aim=this.getAim();net.attack(aim.x,aim.y);this.triggerAction(this.selfId,'attack',250,now);this.slashes.push({x:this.selfX,y:this.selfY,ang:Math.atan2(aim.y-this.selfY,aim.x-this.selfX),until:now+170});this.selfDir=this.direction8(aim.x-this.selfX,aim.y-this.selfY);}
+    castSkill(idx){var _a;const now=performance.now();if((_a=this.you)===null||_a===void 0?void 0:_a.dm)return;const s=this.welcome.skills[idx];if(!s||now<this.localCdEnds[1+idx])return;if(this.you&&this.you.ch<s.ch){this.floatTexts.push({x:this.selfX,y:this.selfY-34,vy:-40,life:800,text:'Chakra insuficiente!',color:'#9bd9f6',crit:false});return;}this.localCdEnds[1+idx]=now+s.cd;if(this.you)this.you.ch-=s.ch;const aim=this.getAim();net.skill(idx,aim.x,aim.y);this.triggerAction(this.selfId,'cast',420,now);this.selfDir=this.direction8(aim.x-this.selfX,aim.y-this.selfY);}
     drinkPotion(){var _a;if((_a=this.you)===null||_a===void 0?void 0:_a.dm)return;net.potion();} interact(){net.interact();}
-    frame(now){var _a,_b,_c;const dt=Math.min(.1,(now-this.lastFrame)/1000);this.lastFrame=now;this.fpsFrames++;this.fpsTime+=dt;if(this.fpsTime>=.5){this.fps=Math.round(this.fpsFrames/this.fpsTime);this.fpsFrames=0;this.fpsTime=0;}const dead=!!((_a=this.you)===null||_a===void 0?void 0:_a.dm);if(!this.walkAt(this.selfX,this.selfY)){const ctx0=Math.floor(this.selfX/TILE),cty0=Math.floor(this.selfY/TILE);outer:for(let r=1;r<=3;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){const tx=(ctx0+dx)*TILE+16,ty=(cty0+dy)*TILE+16;if(this.walkAt(tx,ty)&&this.canStand(tx,ty)){this.selfX=tx;this.selfY=ty;break outer;}}}if(!dead&&this.input.enabled){const mv=this.input.computeMove();if(mv.x!==0||mv.y!==0){const step=PLAYER_SPEED*dt,nx=this.selfX+mv.x*step,ny=this.selfY+mv.y*step;if(this.canStand(nx,this.selfY))this.selfX=nx;if(this.canStand(this.selfX,ny))this.selfY=ny;this.selfMoving=true;if(Math.abs(mv.x)>Math.abs(mv.y))this.selfDir=mv.x>0?3:2;else this.selfDir=mv.y>0?0:1;}else this.selfMoving=false;if(this.input.state.attackHeld)this.basicAttack();}else this.selfMoving=false;if(now-this.lastMoveSent>90){this.lastMoveSent=now;net.move(Math.round(this.selfX),Math.round(this.selfY),this.selfDir);}const rt=this.serverNow()-INTERP_DELAY;for(const e of this.entities.values()){if(e.id===this.selfId){e.x=this.selfX;e.y=this.selfY;e.dir=this.selfDir;e.moving=this.selfMoving;}else{if(e.bt>e.at){const f=Math.max(0,Math.min(1,(rt-e.at)/(e.bt-e.at)));e.x=e.ax+(e.bx-e.ax)*f;e.y=e.ay+(e.by-e.ay)*f;}else{e.x=e.bx;e.y=e.by;}e.moving=Math.hypot(e.bx-e.ax,e.by-e.ay)>2.2;}if(e.moving)e.animT+=dt;}for(const p of this.projectiles.values()){const el=EL_LIST[Math.floor(p.k/4)]||'fogo';if(now-p.trailT>28){p.trailT=now;const cols=this.elColors(el);this.particles.push({x:p.sx+p.vx*(now-p.snapT)/1000,y:p.sy+p.vy*(now-p.snapT)/1000,vx:(Math.random()-.5)*26,vy:(Math.random()-.5)*26-12,life:220+Math.random()*160,maxLife:380,size:2+Math.random()*2.4,color:cols[Math.floor(Math.random()*cols.length)],grav:0,kind:'dot'});}}
+    frame(now){var _a,_b,_c;const dt=Math.min(.1,(now-this.lastFrame)/1000);this.lastFrame=now;this.fpsFrames++;this.fpsTime+=dt;if(this.fpsTime>=.5){this.fps=Math.round(this.fpsFrames/this.fpsTime);this.fpsFrames=0;this.fpsTime=0;}const dead=!!((_a=this.you)===null||_a===void 0?void 0:_a.dm);if(!this.walkAt(this.selfX,this.selfY)){const ctx0=Math.floor(this.selfX/TILE),cty0=Math.floor(this.selfY/TILE);outer:for(let r=1;r<=3;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){const tx=(ctx0+dx)*TILE+16,ty=(cty0+dy)*TILE+16;if(this.walkAt(tx,ty)&&this.canStand(tx,ty)){this.selfX=tx;this.selfY=ty;break outer;}}}if(!dead&&this.input.enabled){const mv=this.input.computeMove();if(mv.x!==0||mv.y!==0){const step=PLAYER_SPEED*dt,nx=this.selfX+mv.x*step,ny=this.selfY+mv.y*step;if(this.canStand(nx,this.selfY))this.selfX=nx;if(this.canStand(this.selfX,ny))this.selfY=ny;this.selfMoving=true;this.selfDir=this.direction8(mv.x,mv.y);}else this.selfMoving=false;if(this.input.state.attackHeld)this.basicAttack();}else this.selfMoving=false;if(now-this.lastMoveSent>90){this.lastMoveSent=now;net.move(Math.round(this.selfX),Math.round(this.selfY),this.selfDir);}const rt=this.serverNow()-INTERP_DELAY;for(const e of this.entities.values()){if(e.id===this.selfId){e.x=this.selfX;e.y=this.selfY;e.dir=this.selfDir;e.moving=this.selfMoving;}else{if(e.bt>e.at){const f=Math.max(0,Math.min(1,(rt-e.at)/(e.bt-e.at)));e.x=e.ax+(e.bx-e.ax)*f;e.y=e.ay+(e.by-e.ay)*f;}else{e.x=e.bx;e.y=e.by;}e.moving=Math.hypot(e.bx-e.ax,e.by-e.ay)>2.2;}if(e.moving)e.animT+=dt;}for(const p of this.projectiles.values()){const el=EL_LIST[Math.floor(p.k/4)]||'fogo';if(now-p.trailT>28){p.trailT=now;const cols=this.elColors(el);this.particles.push({x:p.sx+p.vx*(now-p.snapT)/1000,y:p.sy+p.vy*(now-p.snapT)/1000,vx:(Math.random()-.5)*26,vy:(Math.random()-.5)*26-12,life:220+Math.random()*160,maxLife:380,size:2+Math.random()*2.4,color:cols[Math.floor(Math.random()*cols.length)],grav:0,kind:'dot'});}}
         for(let i=this.particles.length-1;i>=0;i--){const p=this.particles[i];p.life-=dt*1000;if(p.life<=0){this.particles.splice(i,1);continue;}p.vy+=p.grav*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;}if(this.particles.length>900)this.particles.splice(0,this.particles.length-900);for(let i=this.floatTexts.length-1;i>=0;i--){const f=this.floatTexts[i];f.life-=dt*1000;if(f.life<=0){this.floatTexts.splice(i,1);continue;}f.y+=f.vy*dt;f.vy*=.96;}this.slashes=this.slashes.filter(s=>s.until>now);this.aoes=this.aoes.filter(s=>s.until>now);this.telegraphs=this.telegraphs.filter(s=>s.until>now);this.streaks=this.streaks.filter(s=>s.until>now);const k=Math.min(1,dt*5.2);this.camX+=(this.selfX-this.camX)*k;this.camY+=(this.selfY-this.camY)*k;const viewW=this.canvas.clientWidth/this.zoom,viewH=this.canvas.clientHeight/this.zoom,worldW=this.map.w*TILE,worldH=this.map.h*TILE;if(viewW<worldW)this.camX=Math.max(viewW/2,Math.min(worldW-viewW/2,this.camX));else this.camX=worldW/2;if(viewH<worldH)this.camY=Math.max(viewH/2,Math.min(worldH-viewH/2,this.camY));else this.camY=worldH/2;if(this.shake>0)this.shake=Math.max(0,this.shake-dt*34);if(Math.random()<.06&&!dead){const f=this.map.fountain;if(Math.hypot(f.x-this.selfX,f.y-this.selfY)<130)this.particles.push({x:f.x+(Math.random()-.5)*44,y:f.y+(Math.random()-.5)*30,vx:0,vy:-26-Math.random()*20,life:600,maxLife:600,size:1.6,color:'#9bd9f6',grav:0,kind:'dot'});}if(now-this.lastZoneCheck>300){this.lastZoneCheck=now;const z=this.zoneOf(this.selfX,this.selfY);if(z.n!==this.zoneName){this.zoneName=z.n;this.zoneSafe=z.safe;(_b=this.onZoneChange)===null||_b===void 0?void 0:_b.call(this,z.n,z.safe);}}if(now-this.lastTargetCheck>200){this.lastTargetCheck=now;const t=this.findTarget(620);this.targetId=(_c=t===null||t===void 0?void 0:t.id)!==null&&_c!==void 0?_c:null;}drawGame(this,now);}
     buildHud(): HudState {var _a,_b,_c,_d,_e,_f,_g,_h,_j,_k;const you=this.you,missions=this.welcome.missions,mi=you?missions[you.mi]:undefined;let boss: { n: string; pct: number } | null=null,target: { n: string; lv: number; pct: number } | null=null;for(const e of this.entities.values()){if(e.kind!=='monster')continue;const d=Math.hypot(e.x-this.selfX,e.y-this.selfY);if(e.t==='boss'&&d<850)boss={n:e.n,pct:e.hpPct};if(e.id===this.targetId&&d<850)target={n:e.n,lv:e.lv,pct:e.hpPct};}const now=performance.now(),cdTotals=[BASIC_CD,...this.welcome.skills.map(s=>s.cd),POTION_CD],cds: Array<{ left: number; total: number }>=[];for(let i=0;i<6;i++){const local=this.localCdEnds[i]>0?this.localCdEnds[i]-now:0,server=this.serverCdEnds[i]>0?this.serverCdEnds[i]-now:0;cds.push({left:Math.max(0,Math.max(local,server)),total:cdTotals[i]});}let interact: 'fonte' | 'loja' | null=null;if(!(you===null||you===void 0?void 0:you.dm)){if(Math.hypot(this.map.fountain.x-this.selfX,this.map.fountain.y-this.selfY)<100)interact='fonte';else if(Math.hypot(this.map.shopNpc.x-this.selfX,this.map.shopNpc.y-this.selfY)<100)interact='loja';}return{hp:(_a=you===null||you===void 0?void 0:you.hp)!==null&&_a!==void 0?_a:100,mh:(_b=you===null||you===void 0?void 0:you.mh)!==null&&_b!==void 0?_b:100,ch:(_c=you===null||you===void 0?void 0:you.ch)!==null&&_c!==void 0?_c:55,mc:(_d=you===null||you===void 0?void 0:you.mc)!==null&&_d!==void 0?_d:55,xp:(_e=you===null||you===void 0?void 0:you.xp)!==null&&_e!==void 0?_e:0,need:(_f=you===null||you===void 0?void 0:you.need)!==null&&_f!==void 0?_f:70,lvl:(_g=you===null||you===void 0?void 0:you.lvl)!==null&&_g!==void 0?_g:1,gold:(_h=you===null||you===void 0?void 0:you.gold)!==null&&_h!==void 0?_h:0,pot:(_j=you===null||you===void 0?void 0:you.pot)!==null&&_j!==void 0?_j:0,cds,zoneName:this.zoneName,safe:this.zoneSafe,mission:mi?{name:mi.name,need:mi.need,prog:(_k=you===null||you===void 0?void 0:you.mp)!==null&&_k!==void 0?_k:0}:null,dead:!!(you===null||you===void 0?void 0:you.dm),boss,target,interact,fps:this.fps,selfMoving:this.selfMoving};}
     get damageFlashUntil(){return this.dmgFlash;}
