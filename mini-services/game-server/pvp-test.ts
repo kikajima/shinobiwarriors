@@ -54,10 +54,10 @@ if (reward1 <= 0 || rewardRepeat !== 0 || rewardAfterCooldown <= 0) {
 }
 
 // Centro da Vila da Folha (zona safe): PvP deve ser completamente bloqueado.
-attacker.x = 32.5 * 32
-attacker.y = 35 * 32
-target.x = 34 * 32
-target.y = 35 * 32
+attacker.x = 52.5 * 32
+attacker.y = 55 * 32
+target.x = 54 * 32
+target.y = 55 * 32
 attacker.dead = false
 target.dead = false
 target.hp = 200
