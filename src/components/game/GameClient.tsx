@@ -149,7 +149,7 @@ export default function GameClient() {
     }
     const onChat = (d: any) => pushChat({ key: nextChatKey(), kind: 'chat', name: d.n, lv: d.lv, el: d.el, text: d.text })
     const onSys = (d: { t: string }) => pushChat({ key: nextChatKey(), kind: 'sys', text: d.t })
-    const onKill = (d: any) => pushChat({ key: nextChatKey(), kind: 'kill', name: d.k, text: `${d.v} (Nv${d.mlv}) +${d.g} ryō` })
+    const onKill = (d: any) => pushChat({ key: nextChatKey(), kind: 'kill', name: d.k, text: d.pvp ? `PvP — ${d.v} (Nv${d.mlv})` : `${d.v} (Nv${d.mlv}) +${d.g} ryō` })
     const onMission = (d: any) => { if (d.done) { setMissionDone({ name: d.name, gold: d.gold, xp: d.xp }); audio.play('lvl') } }
     const onShop = (d: ShopMsg) => setShop(d.open ? d : null)
     const onDead = (d: { by: string }) => setDeathBy(d.by)

@@ -53,6 +53,10 @@ jobs:
         working-directory: mini-services/game-server
         run: bun map-test.ts
 
+      - name: Validate PvP rules
+        working-directory: mini-services/game-server
+        run: bun pvp-test.ts
+
       - name: Smoke test multiplayer server
         working-directory: mini-services/game-server
         run: |

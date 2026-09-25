@@ -9,6 +9,8 @@ const rnd = Math.random;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const isFiniteNumber = value => typeof value === 'number' && Number.isFinite(value);
 const dir8 = (dx, dy) => { const oct=(Math.round(Math.atan2(dy,dx)/(Math.PI/4))+8)%8; return (oct+6)%8; };
+const PVP_DAMAGE_SCALE = 0.65;
+const PLAYER_HIT_RADIUS = 14;
 export class Game {
  constructor(io){this.world=genWorld();this.players=new Map();this.monsters=new Map();this.projectiles=new Map();this.nextId=1;this.saved={};this.tickCount=0;this.lastSave=0;this.lastTip=Date.now()+60000;this.lastLifecycle=Date.now()+20000;this.io=io;this.saved=loadSave();this.spawnMonsters();this.spawnInitialBots()}
  onlineCount(){return this.players.size}
@@ -62,7 +64,33 @@ export class Game {
    this.broadcast('pJoin',{id:ent.id,n:ent.name,lv:ent.lv,el:ent.el,pal:ent.pal});this.sys(`${ent.name} entrou no jogo.`);botGreetHuman(this,ent);return{ok:true};
  }
  removeHuman(socket){const ent=this.players.get(socket.data?.pid);if(!ent)return;this.players.delete(ent.id);this.broadcast('pLeave',{id:ent.id});this.sys(`${ent.name} saiu do jogo.`);this.saved[ent.name.toLowerCase()]={el:ent.el,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot};saveReal(this.saved)}
- entOf(socket){return this.players.get(socket.data?.pid)} broadcast(ev,payload){for(const p of this.players.values())if(p.kind==='human'&&p.socket)p.socket.emit(ev,payload)} emitNear(x,y,r,ev,payload){for(const p of this.players.values())if(p.kind==='human'&&p.socket&&Math.abs(p.x-x)<r&&Math.abs(p.y-y)<r)p.socket.emit(ev,payload)} sys(text){this.broadcast('sys',{t:text})} chatOut(ent,text){this.broadcast('chat',{id:ent.id,n:ent.name,lv:ent.lv,el:ent.el,text})} forgetEntity(id){for(const p of this.players.values())p.known.delete(id)}
+ entOf(socket){return this.players.get(socket.data?.pid)}
+ canPvp(attacker,target){
+   if(!attacker||!target||attacker.id===target.id||attacker.dead||target.dead)return false;
+   return !zoneAt(this.world,attacker.x,attacker.y).safe&&!zoneAt(this.world,target.x,target.y).safe;
+ }
+ hitPlayer(target,attacker,base,mult=1,elemental=false){
+   if(!this.canPvp(attacker,target))return false;
+   const now=Date.now(),lightningBonus=(elemental&&attacker.el==='raio')?0.12:0,crit=rnd()<CRIT_CHANCE+lightningBonus;
+   let dmg=base*mult*PVP_DAMAGE_SCALE*(.9+rnd()*.2);
+   if(crit)dmg*=CRIT_MULT;
+   if(target.el==='terra')dmg*=.84;
+   dmg=Math.max(1,Math.round(dmg));
+   target.hp-=dmg;attacker.lastCombatAt=now;target.lastCombatAt=now;
+   this.emitNear(target.x,target.y,900,'dmg',{tid:target.id,x:target.x,y:target.y-30,v:dmg,c:crit?1:0,tp:1,pvp:1});
+   if(target.bot)target.bot.onPvpHit(attacker);
+   if(target.hp<=0)this.killPlayerPvp(target,attacker);
+   return true;
+ }
+ killPlayerPvp(victim,killer){
+   victim.hp=0;victim.dead=true;this.forgetEntity(victim.id);
+   this.emitNear(victim.x,victim.y,1000,'fx',{k:'pdeath',x:victim.x,y:victim.y});
+   this.broadcast('kill',{k:killer.name,klv:killer.lv,v:victim.name,mlv:victim.lv,g:0,xp:0,pvp:1});
+   this.sys(`${killer.name} derrotou ${victim.name} em PvP!`);
+   if(victim.kind==='human')victim.socket?.emit('dead',{by:killer.name});
+   else victim.bot?.onDeath(killer);
+ }
+ broadcast(ev,payload){for(const p of this.players.values())if(p.kind==='human'&&p.socket)p.socket.emit(ev,payload)} emitNear(x,y,r,ev,payload){for(const p of this.players.values())if(p.kind==='human'&&p.socket&&Math.abs(p.x-x)<r&&Math.abs(p.y-y)<r)p.socket.emit(ev,payload)} sys(text){this.broadcast('sys',{t:text})} chatOut(ent,text){this.broadcast('chat',{id:ent.id,n:ent.name,lv:ent.lv,el:ent.el,text})} forgetEntity(id){for(const p of this.players.values())p.known.delete(id)}
  handleMove(socket,msg){
    const ent=this.entOf(socket);
    if(!ent||ent.dead)return;
@@ -83,8 +111,8 @@ export class Game {
    ent.lastMoveAt=now;
    if(Number.isInteger(msg.dir)&&msg.dir>=0&&msg.dir<=7)ent.dir=msg.dir;
  }
- basicAttack(ent,tx,ty){if(ent.dead)return;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const now=Date.now();if(now<ent.cds[0])return;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy);if(d<1){dx=0;dy=1}const ang=Math.atan2(dy,dx);ent.cds[0]=now+BASIC.cd;ent.lastCombatAt=now;this.emitNear(ent.x,ent.y,900,'fx',{k:'slash',sid:ent.id,x:ent.x,y:ent.y,tx,ty});for(const m of this.monsters.values()){if(m.dead)continue;const md=dist(m,ent);if(md>BASIC.range+m.radius)continue;const mang=Math.atan2(m.y-ent.y,m.x-ent.x);let diff=Math.abs(mang-ang);if(diff>Math.PI)diff=Math.PI*2-diff;if(diff<BASIC.arc*Math.PI/180)this.hitMonster(m,ent,atkOf(ent.lv),1)}}
- castSkill(ent,idx,tx,ty){if(ent.dead||idx<0||idx>3)return false;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const s=SKILLS[ent.el][idx],now=Date.now();if(now<ent.cds[1+idx]||ent.ch<s.ch)return false;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy)||1,nx=dx/d,ny=dy/d;ent.dir=dir8(nx,ny);ent.cds[1+idx]=now+s.cd;ent.ch-=s.ch;ent.lastCombatAt=now;const el=ent.el;switch(s.archetype){case'proj':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,false,10,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'multi':{const count=Math.max(1,s.count||3),mid=(count-1)/2;for(let i=0;i<count;i++){const a=Math.atan2(ny,nx)+(i-mid)*.18;this.spawnProjectile(ent,idx,Math.cos(a),Math.sin(a),s.speed,s.mult,false,9,s.range)}this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;}case'line':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,true,15,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'dash':{const want=Math.min(s.range,d);let moved=0;const hitSet=new Set();while(moved<want){const step=Math.min(13,want-moved),nxp=ent.x+nx*step,nyp=ent.y+ny*step;if(!walkable(this.world,nxp,nyp))break;ent.x=nxp;ent.y=nyp;moved+=step;for(const m of this.monsters.values())if(!m.dead&&!hitSet.has(m.id)&&dist(m,ent)<46+m.radius){hitSet.add(m.id);this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true)}}this.emitNear(ent.x,ent.y,1100,'fx',{k:'dash',sid:ent.id,el,x:ent.x,y:ent.y,tx:ent.x+nx*60,ty:ent.y+ny*60});break}case'aoe':{const cd=Math.min(s.range,d),cx=ent.x+nx*cd,cy=ent.y+ny*cd;this.emitNear(cx,cy,1100,'fx',{k:'aoe',sid:ent.id,el,x:cx,y:cy,r:s.radius});for(const m of this.monsters.values())if(!m.dead&&dist(m,{x:cx,y:cy})<s.radius+m.radius)this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true);break}}return true}
+ basicAttack(ent,tx,ty){if(ent.dead)return;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const now=Date.now();if(now<ent.cds[0])return;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy);if(d<1){dx=0;dy=1}const ang=Math.atan2(dy,dx);ent.cds[0]=now+BASIC.cd;ent.lastCombatAt=now;this.emitNear(ent.x,ent.y,900,'fx',{k:'slash',sid:ent.id,x:ent.x,y:ent.y,tx,ty});for(const m of this.monsters.values()){if(m.dead)continue;const md=dist(m,ent);if(md>BASIC.range+m.radius)continue;const mang=Math.atan2(m.y-ent.y,m.x-ent.x);let diff=Math.abs(mang-ang);if(diff>Math.PI)diff=Math.PI*2-diff;if(diff<BASIC.arc*Math.PI/180)this.hitMonster(m,ent,atkOf(ent.lv),1)}for(const p of this.players.values()){if(!this.canPvp(ent,p))continue;const pd=dist(p,ent);if(pd>BASIC.range+PLAYER_HIT_RADIUS)continue;const pang=Math.atan2(p.y-ent.y,p.x-ent.x);let diff=Math.abs(pang-ang);if(diff>Math.PI)diff=Math.PI*2-diff;if(diff<BASIC.arc*Math.PI/180)this.hitPlayer(p,ent,atkOf(ent.lv),1,false)}}
+ castSkill(ent,idx,tx,ty){if(ent.dead||idx<0||idx>3)return false;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const s=SKILLS[ent.el][idx],now=Date.now();if(now<ent.cds[1+idx]||ent.ch<s.ch)return false;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy)||1,nx=dx/d,ny=dy/d;ent.dir=dir8(nx,ny);ent.cds[1+idx]=now+s.cd;ent.ch-=s.ch;ent.lastCombatAt=now;const el=ent.el;switch(s.archetype){case'proj':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,false,10,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'multi':{const count=Math.max(1,s.count||3),mid=(count-1)/2;for(let i=0;i<count;i++){const a=Math.atan2(ny,nx)+(i-mid)*.18;this.spawnProjectile(ent,idx,Math.cos(a),Math.sin(a),s.speed,s.mult,false,9,s.range)}this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;}case'line':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,true,15,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'dash':{const want=Math.min(s.range,d);let moved=0;const hitSet=new Set();while(moved<want){const step=Math.min(13,want-moved),nxp=ent.x+nx*step,nyp=ent.y+ny*step;if(!walkable(this.world,nxp,nyp))break;ent.x=nxp;ent.y=nyp;moved+=step;for(const m of this.monsters.values())if(!m.dead&&!hitSet.has(m.id)&&dist(m,ent)<46+m.radius){hitSet.add(m.id);this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true)}for(const p of this.players.values())if(this.canPvp(ent,p)&&!hitSet.has(p.id)&&dist(p,ent)<46+PLAYER_HIT_RADIUS){hitSet.add(p.id);this.hitPlayer(p,ent,atkOf(ent.lv),s.mult,true)}}this.emitNear(ent.x,ent.y,1100,'fx',{k:'dash',sid:ent.id,el,x:ent.x,y:ent.y,tx:ent.x+nx*60,ty:ent.y+ny*60});break}case'aoe':{const cd=Math.min(s.range,d),cx=ent.x+nx*cd,cy=ent.y+ny*cd;this.emitNear(cx,cy,1100,'fx',{k:'aoe',sid:ent.id,el,x:cx,y:cy,r:s.radius});for(const m of this.monsters.values())if(!m.dead&&dist(m,{x:cx,y:cy})<s.radius+m.radius)this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true);for(const p of this.players.values())if(this.canPvp(ent,p)&&dist(p,{x:cx,y:cy})<s.radius+PLAYER_HIT_RADIUS)this.hitPlayer(p,ent,atkOf(ent.lv),s.mult,true);break}}return true}
  spawnProjectile(ent,idx,nx,ny,speed,mult,pierce,radius,range){const id=this.nextId++;this.projectiles.set(id,{id,owner:ent.id,x:ent.x+nx*22,y:ent.y+ny*22-6,vx:nx*speed,vy:ny*speed,k:EL_LIST.indexOf(ent.el)*4+idx,dmg:atkOf(ent.lv)*mult,pierce,radius,ttl:range/speed,hitIds:new Set()})}
  hitMonster(m,attacker,base,mult,elemental=false){
    const now=Date.now();
@@ -159,7 +187,7 @@ if(m.boss&&m.slamPending&&now>=m.slamPending.at){const sp=m.slamPending;m.slamPe
    else if(walkable(this.world,m.x+sx,m.y))m.x+=sx;
    else if(walkable(this.world,m.x,m.y+sy))m.y+=sy;
  }
- updateProjectiles(dt){for(const pr of[...this.projectiles.values()]){pr.x+=pr.vx*dt;pr.y+=pr.vy*dt;pr.ttl-=dt;let dead=pr.ttl<=0||!walkable(this.world,pr.x,pr.y);if(!dead){const owner=this.players.get(pr.owner);for(const m of this.monsters.values())if(!m.dead&&!pr.hitIds.has(m.id)&&dist(m,pr)<m.radius+pr.radius){pr.hitIds.add(m.id);if(owner)this.hitMonster(m,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}}if(dead)this.projectiles.delete(pr.id)}}
+ updateProjectiles(dt){for(const pr of[...this.projectiles.values()]){pr.x+=pr.vx*dt;pr.y+=pr.vy*dt;pr.ttl-=dt;let dead=pr.ttl<=0||!walkable(this.world,pr.x,pr.y);if(!dead){const owner=this.players.get(pr.owner);for(const m of this.monsters.values())if(!m.dead&&!pr.hitIds.has(m.id)&&dist(m,pr)<m.radius+pr.radius){pr.hitIds.add(m.id);if(owner)this.hitMonster(m,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}if(!dead&&owner){for(const p of this.players.values()){if(!this.canPvp(owner,p)||pr.hitIds.has(p.id)||dist(p,pr)>=PLAYER_HIT_RADIUS+pr.radius)continue;pr.hitIds.add(p.id);this.hitPlayer(p,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}}}if(dead)this.projectiles.delete(pr.id)}}
  updateRegen(dt,now){for(const p of this.players.values()){const maxCh=maxChOf(p.lv),maxHp=maxHpOf(p.lv);if(!p.dead){p.ch=Math.min(maxCh,p.ch+5.5*dt);if(now-p.lastCombatAt>6000)p.hp=Math.min(maxHp,p.hp+2.2*dt)}}}
  updateBotLifecycle(now){if(now<this.lastLifecycle)return;this.lastLifecycle=now+25000;const bots=[...this.players.values()].filter(p=>p.kind==='bot');if(bots.length>BOT_TARGET-4&&rnd()<.55){const b=bots[Math.floor(rnd()*bots.length)];if(b&&!b.bot?.inCombat()){if(rnd()<.45)b.bot?.sayFarewell();this.players.delete(b.id);this.forgetEntity(b.id);this.broadcast('pLeave',{id:b.id});this.sys(`${b.name} saiu do jogo.`)}}else if(bots.length<BOT_TARGET+3&&rnd()<.6){const b=this.addBot();if(b){this.broadcast('pJoin',{id:b.id,n:b.name,lv:b.lv,el:b.el,pal:b.pal});this.sys(`${b.name} entrou no jogo.`);if(rnd()<.5)b.bot?.sayJoin()}}}
  sendSnapshots(now){

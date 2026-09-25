@@ -108,6 +108,8 @@ export class BotBrain {
   route: { x: number; y: number }[] = []
   routeI = 0
   targetId: number | null = null
+  pvpTargetId: number | null = null
+  pvpUntil = 0
   nextCastAt = 0
   wanderAt = 0
   wanderAng = 0
@@ -146,9 +148,17 @@ export class BotBrain {
     }
   }
 
-  onDeath(src: MonsterEnt) {
+  onPvpHit(src: PlayerEnt) {
+    if (src.id === this.ent.id || src.dead) return
+    this.pvpTargetId = src.id
+    this.pvpUntil = Date.now() + 12000
+    this.targetId = null
+  }
+
+  onDeath(src: MonsterEnt | PlayerEnt) {
     this.respawnAt = Date.now() + 6000 + rnd() * 6000
     this.targetId = null
+    this.pvpTargetId = null
     if (rnd() < 0.25) {
       this.game.chatOut(this.ent, pick(CHAT.death).replace('{mob}', src.name))
     }
@@ -184,6 +194,13 @@ export class BotBrain {
       this.nextChatAt = now + 50000 + rnd() * 240000 * (1.4 - this.chattiness)
       if (rnd() < 0.3 + this.chattiness * 0.55) this.ambientChat()
     }
+
+    const rival = this.pvpTargetId != null ? this.game.players.get(this.pvpTargetId) : undefined
+    if (rival && now < this.pvpUntil && this.game.canPvp(ent, rival)) {
+      this.thinkPvp(rival, dt, now)
+      return
+    }
+    this.pvpTargetId = null
 
     switch (this.state) {
       case 'rest': this.thinkRest(dt, now); break
@@ -337,6 +354,39 @@ export class BotBrain {
         }
         this.game.castSkill(ent, chosen, aimX, aimY)
       } else if (d < 96 && now >= ent.cds[0]) this.game.basicAttack(ent, aimX, aimY)
+    }
+  }
+
+  thinkPvp(target: PlayerEnt, dt: number, now: number) {
+    const ent = this.ent
+    const d = dist(target, ent)
+    if (target.dead || d > 620 || !this.game.canPvp(ent, target)) {
+      this.pvpTargetId = null
+      return
+    }
+
+    const hpPct = ent.hp / (90 + 28 * (ent.lv - 1))
+    if (hpPct < 0.30 && ent.pot > 0 && now >= ent.cds[5]) this.game.usePotion(ent)
+
+    if (d > this.desiredRange) this.stepToward(target.x, target.y, BOT_SPEED * dt)
+    else if (d < 48 && rnd() < 0.28) {
+      const ang = Math.atan2(ent.y - target.y, ent.x - target.x)
+      this.stepToward(ent.x + Math.cos(ang) * 60, ent.y + Math.sin(ang) * 60, BOT_SPEED * dt * 0.75)
+    }
+
+    if (now < this.nextCastAt) return
+    this.nextCastAt = now + 450 + rnd() * 850
+    const skills = SKILLS[ent.el]
+    const ready: number[] = []
+    for (let i = 0; i < 4; i++) {
+      if (now < ent.cds[1 + i] || ent.ch < skills[i].ch || d > skills[i].range * 0.92) continue
+      ready.push(i)
+    }
+    if (ready.length && rnd() < 0.72) {
+      const chosen = pick(ready)
+      this.game.castSkill(ent, chosen, target.x, target.y)
+    } else if (d < 96 && now >= ent.cds[0]) {
+      this.game.basicAttack(ent, target.x, target.y)
     }
   }
 
