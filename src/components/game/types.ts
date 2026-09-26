@@ -25,6 +25,24 @@ export const VILLAGE_TAGS: Record<VillageId, string> = {
   terra: 'TER',
 }
 
+export type InventorySlotView = { id: string; qty: number } | null
+export type ItemKind = 'consumable' | 'material'
+export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic'
+export interface ItemDefView {
+  id: string
+  name: string
+  description: string
+  kind: ItemKind
+  rarity: ItemRarity
+  maxStack: number
+  usable: boolean
+}
+export interface InventoryMsg {
+  slots: InventorySlotView[]
+  pot: number
+  lastAdded?: { id: string; qty: number }
+}
+
 export interface MapData {
   w: number
   h: number
@@ -42,7 +60,9 @@ export interface WelcomeData {
   id: number
   t: number
   online: number
-  self: { n: string; el: ElementId; village: VillageId; lv: number; xp: number; gold: number; pot: number; x: number; y: number; bounty?: BountyContractView | null }
+  self: { n: string; el: ElementId; village: VillageId; lv: number; xp: number; gold: number; pot: number; x: number; y: number; bounty?: BountyContractView | null; inventory: InventorySlotView[] }
+  inventoryCapacity: number
+  items: ItemDefView[]
   map: MapData
   skills: { name: string; archetype: string; cd: number; ch: number; range: number }[]
   missions: { name: string; monster: string; need: number }[]
