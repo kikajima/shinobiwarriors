@@ -5,6 +5,8 @@
 import type { ElementId, VillageId } from './data'
 import type { BotBrain } from './bots'
 
+export type InventorySlot = { id: string; qty: number } | null
+
 export interface PlayerEnt {
   id: number
   kind: 'human' | 'bot'
@@ -18,6 +20,7 @@ export interface PlayerEnt {
   ch: number
   gold: number
   pot: number
+  inventory: InventorySlot[]
   x: number
   y: number
   dir: number // 0=baixo 1=baixo-esq 2=esq 3=cima-esq 4=cima 5=cima-dir 6=dir 7=baixo-dir
@@ -97,6 +100,7 @@ export interface SavedPlayer {
   xp: number
   gold: number
   pot: number
+  inventory?: InventorySlot[]
   bounty?: BountyContract | null
 }
 
@@ -109,6 +113,7 @@ export interface SavedBotProfile {
   xp: number
   gold: number
   pot: number
+  inventory?: InventorySlot[]
   mi: number
   mp: number
   bounty?: BountyContract | null
