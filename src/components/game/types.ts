@@ -25,9 +25,14 @@ export const VILLAGE_TAGS: Record<VillageId, string> = {
   terra: 'TER',
 }
 
-export type InventorySlotView = { id: string; qty: number } | null
-export type ItemKind = 'consumable' | 'material'
-export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic'
+export type EquipmentItemSlot = 'head' | 'torso' | 'boots' | 'gloves' | 'accessory' | 'pants'
+export type EquipmentSlot = 'head' | 'torso' | 'boots' | 'gloves' | 'accessory1' | 'accessory2' | 'pants'
+export interface EquipmentStatsView { hp:number; chakra:number; attack:number; defense:number; speed:number; crit:number }
+export interface EquippedItemView { id:string; upgrade:number }
+export type EquipmentLoadoutView = Record<EquipmentSlot, EquippedItemView | null>
+export type InventorySlotView = { id: string; qty: number; upgrade?: number } | null
+export type ItemKind = 'consumable' | 'material' | 'equipment'
+export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'unique'
 export interface ItemDefView {
   id: string
   name: string
@@ -36,6 +41,12 @@ export interface ItemDefView {
   rarity: ItemRarity
   maxStack: number
   usable: boolean
+  equipment?: {
+    slot: EquipmentItemSlot
+    requiredLv: number
+    price: number
+    baseStats: EquipmentStatsView
+  }
 }
 export interface InventoryMsg {
   slots: InventorySlotView[]
@@ -51,7 +62,7 @@ export interface MapData {
   zones: { n: string; x1: number; y1: number; x2: number; y2: number; safe?: boolean; village?: VillageId }[]
   fountains: { x: number; y: number; village: VillageId }[]
   fountain: { x: number; y: number }
-  shops: { id: number; name: string; x: number; y: number; village: VillageId }[]
+  shops: { id: number; name: string; x: number; y: number; village: VillageId; kind: 'supply' | 'equipment' }[]
   bountyNpcs: { id: number; name: string; x: number; y: number; village: VillageId }[]
   shopNpc: { x: number; y: number }
 }
@@ -60,7 +71,7 @@ export interface WelcomeData {
   id: number
   t: number
   online: number
-  self: { n: string; el: ElementId; village: VillageId; lv: number; xp: number; gold: number; pot: number; x: number; y: number; bounty?: BountyContractView | null; inventory: InventorySlotView[] }
+  self: { n: string; el: ElementId; village: VillageId; lv: number; xp: number; gold: number; pot: number; x: number; y: number; bounty?: BountyContractView | null; inventory: InventorySlotView[]; equipment: EquipmentLoadoutView; equipmentStats: EquipmentStatsView }
   inventoryCapacity: number
   items: ItemDefView[]
   map: MapData
@@ -99,6 +110,10 @@ export interface YouState {
   lvl: number
   gold: number
   pot: number
+  atk: number
+  def: number
+  crit: number
+  spd: number
   cds: number[]
   mi: number
   mp: number
@@ -163,6 +178,29 @@ export interface MissionMsg {
   done?: boolean
   gold?: number
   xp?: number
+}
+
+export interface EquipmentStateMsg {
+  loadout: EquipmentLoadoutView
+  stats: EquipmentStatsView
+  gold: number
+  forgeCosts: Record<EquipmentSlot, { gold:number; materials:Record<string,number> } | null>
+}
+export interface EquipmentCatalogEntry {
+  id:string
+  name:string
+  rarity:ItemRarity
+  slot:EquipmentItemSlot
+  requiredLv:number
+  price:number
+  baseStats:EquipmentStatsView
+}
+export interface EquipmentShopMsg {
+  open:boolean
+  name:string
+  gold:number
+  catalog:EquipmentCatalogEntry[]
+  equipment:EquipmentStateMsg
 }
 
 export interface ShopMsg {
