@@ -8,7 +8,7 @@ if (world.w !== 256 || world.h !== 256) throw new Error(`mapa deveria ser 256x25
 if (world.tiles.length !== 256 || world.tiles.some((r) => r.length !== 256)) throw new Error('grade de tiles inválida')
 if (MAX_LEVEL !== 200) throw new Error(`level cap deveria ser 200, veio ${MAX_LEVEL}`)
 if (world.fountains.length !== 4) throw new Error(`esperava 4 fontes, veio ${world.fountains.length}`)
-if (world.shops.length !== 8) throw new Error(`esperava 8 lojas, veio ${world.shops.length}`)
+if (world.shops.length !== 12) throw new Error(`esperava 12 lojas, veio ${world.shops.length}`)
 
 const villages = ['folha', 'areia', 'nevoa', 'terra'] as const
 for (const id of villages) {
