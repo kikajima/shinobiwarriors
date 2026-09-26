@@ -85,6 +85,10 @@ jobs:
         working-directory: mini-services/game-server
         run: bun bounty-test.ts
 
+      - name: Validate inventory system
+        working-directory: mini-services/game-server
+        run: bun inventory-test.ts
+
       - name: Smoke test multiplayer server
         working-directory: mini-services/game-server
         run: |
