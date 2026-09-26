@@ -57,6 +57,10 @@ jobs:
         working-directory: mini-services/game-server
         run: bun progression-test.ts
 
+      - name: Validate organic bot behavior
+        working-directory: mini-services/game-server
+        run: bun bot-behavior-test.ts
+
       - name: Validate destructible scenery
         working-directory: mini-services/game-server
         run: bun destruction-test.ts

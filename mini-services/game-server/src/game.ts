@@ -289,7 +289,38 @@ if(m.boss&&m.slamPending&&now>=m.slamPending.at){const sp=m.slamPending;m.slamPe
      }
    }
  }
- updateBotLifecycle(now){if(now<this.lastLifecycle)return;this.lastLifecycle=now+25000;const bots=[...this.players.values()].filter(p=>p.kind==='bot');if(bots.length>BOT_TARGET-4&&rnd()<.55){const b=bots[Math.floor(rnd()*bots.length)];if(b&&!b.bot?.inCombat()){if(rnd()<.45)b.bot?.sayFarewell();this.rememberBot(b);this.players.delete(b.id);this.forgetEntity(b.id);this.broadcast('pLeave',{id:b.id});this.sys(`${b.name} saiu do jogo.`)}}else if(bots.length<BOT_TARGET+3&&rnd()<.6){const b=this.addBot();if(b){this.broadcast('pJoin',{id:b.id,n:b.name,lv:b.lv,el:b.el,v:b.village,pal:b.pal});this.sys(`${b.name} entrou no jogo.`);if(rnd()<.5)b.bot?.sayJoin()}}}
+ updateBotLifecycle(now){
+   if(now<this.lastLifecycle)return;
+   this.lastLifecycle=now+25000;
+   const bots=[...this.players.values()].filter(p=>p.kind==='bot');
+   const canLeave=()=>bots.filter(b=>!b.bot?.inCombat()&&!b.dead);
+   const removeOne=()=>{
+     const pool=canLeave();
+     if(!pool.length)return false;
+     const b=pool[Math.floor(rnd()*pool.length)];
+     if(rnd()<.28)b.bot?.sayFarewell();
+     this.rememberBot(b);
+     this.players.delete(b.id);
+     this.forgetEntity(b.id);
+     this.broadcast('pLeave',{id:b.id});
+     return true;
+   };
+   const addOne=()=>{
+     const b=this.addBot();
+     if(!b)return false;
+     this.broadcast('pJoin',{id:b.id,n:b.name,lv:b.lv,el:b.el,v:b.village,pal:b.pal});
+     if(rnd()<.28)b.bot?.sayJoin();
+     return true;
+   };
+
+   if(bots.length>BOT_TARGET+4){removeOne();return}
+   if(bots.length<BOT_TARGET-4){addOne();return}
+
+   const roll=rnd();
+   if(roll<.09&&bots.length>BOT_TARGET-2)removeOne();
+   else if(roll<.18&&bots.length<BOT_TARGET+2)addOne();
+ }
+
  sendSnapshots(now){
    const view=1080,metaRefresh=4000;
    for(const h of this.players.values()){

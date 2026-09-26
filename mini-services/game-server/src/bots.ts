@@ -14,7 +14,64 @@ const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.
 const dir8 = (dx: number, dy: number): number => { const oct=(Math.round(Math.atan2(dy,dx)/(Math.PI/4))+8)%8; return (oct+6)%8 }
 const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
 
-export const BOT_TARGET = 30
+export type BotFocus = 'mission' | 'grind' | 'explore' | 'pvp' | 'social'
+export const BOT_FOCUS_TYPES: BotFocus[] = ['mission', 'grind', 'explore', 'pvp', 'social']
+
+export interface BotPersonality {
+  primary: BotFocus
+  mission: number
+  grind: number
+  explore: number
+  pvp: number
+  social: number
+  caution: number
+}
+
+const hashName = (name: string): number => {
+  let h = 2166136261 >>> 0
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i)
+    h = Math.imul(h, 16777619) >>> 0
+  }
+  return h >>> 0
+}
+const unitFromHash = (h: number, shift: number) => (((h >>> shift) & 255) / 255 - .5) * .16
+const clampTrait = (n: number) => Math.max(.05, Math.min(.98, n))
+
+export function botPersonalityForName(name: string): BotPersonality {
+  const h = hashName(name.toLowerCase())
+  const primary = BOT_FOCUS_TYPES[h % BOT_FOCUS_TYPES.length]
+  const base: Record<BotFocus, Omit<BotPersonality, 'primary'>> = {
+    mission: { mission:.90, grind:.58, explore:.30, pvp:.22, social:.36, caution:.64 },
+    grind:   { mission:.50, grind:.94, explore:.34, pvp:.34, social:.24, caution:.52 },
+    explore: { mission:.36, grind:.46, explore:.95, pvp:.42, social:.48, caution:.48 },
+    pvp:     { mission:.30, grind:.48, explore:.52, pvp:.94, social:.26, caution:.34 },
+    social:  { mission:.48, grind:.42, explore:.52, pvp:.24, social:.95, caution:.72 },
+  }
+  const b = base[primary]
+  return {
+    primary,
+    mission: clampTrait(b.mission + unitFromHash(h, 0)),
+    grind: clampTrait(b.grind + unitFromHash(h, 4)),
+    explore: clampTrait(b.explore + unitFromHash(h, 8)),
+    pvp: clampTrait(b.pvp + unitFromHash(h, 12)),
+    social: clampTrait(b.social + unitFromHash(h, 16)),
+    caution: clampTrait(b.caution + unitFromHash(h, 20)),
+  }
+}
+
+const weightedFocus = (weights: Record<BotFocus, number>): BotFocus => {
+  const total = BOT_FOCUS_TYPES.reduce((sum, k) => sum + Math.max(0, weights[k]), 0)
+  if (total <= 0) return 'grind'
+  let roll = rnd() * total
+  for (const k of BOT_FOCUS_TYPES) {
+    roll -= Math.max(0, weights[k])
+    if (roll <= 0) return k
+  }
+  return 'grind'
+}
+
+export const BOT_TARGET = 60
 
 const TILE = 32
 
@@ -126,7 +183,9 @@ export class BotBrain {
   pvpTargetId: number | null = null
   pvpUntil = 0
   nextPvpScanAt = 0
-  pvpAggression = 0.28 + rnd() * 0.52
+  personality: BotPersonality
+  focus: BotFocus = 'mission'
+  focusUntil = 0
   nextCastAt = 0
   wanderAt = 0
   wanderAng = 0
@@ -135,7 +194,6 @@ export class BotBrain {
   nextChatAt = 0
   replyAt = 0
   replyText = ''
-  chattiness = 0.3 + rnd() * 0.7
   desiredRange = 100 + rnd() * 55
   respawnAt = 0
   stuckCheckAt = 0
@@ -143,14 +201,83 @@ export class BotBrain {
   stuckCount = 0
   grindAnchor: { x: number; y: number } | null = null
   returningToVillage = false
+  lastZone = ''
+  zoneChanges = 0
 
   constructor(game: Game, ent: PlayerEnt) {
     this.game = game
     this.ent = ent
+    this.personality = botPersonalityForName(ent.name)
     this.zone = zoneForBot(ent)
+    this.lastZone = this.zone
     const now = Date.now()
-    this.nextChatAt = now + 15000 + rnd() * 90000
-    this.routeTo(this.zone, true)
+    this.nextChatAt = now + 15000 + rnd() * 90000 * (1.25 - this.personality.social * .45)
+    this.chooseFocus(now, true)
+    this.startFocusedActivity(now)
+  }
+
+  chooseFocus(now: number, force = false): BotFocus {
+    if (!force && now < this.focusUntil) return this.focus
+    const ent = this.ent
+    const maxHp = Math.max(1, 90 + 28 * (ent.lv - 1))
+    const hpPct = ent.hp / maxHp
+    const mission = MISSIONS[ent.mi]
+    const missionRemaining = mission ? Math.max(0, mission.need - ent.mp) / Math.max(1, mission.need) : 0
+
+    const weights: Record<BotFocus, number> = {
+      mission: this.personality.mission * (1 + missionRemaining * .95),
+      grind: this.personality.grind * (1 + Math.max(0, 10 - ent.lv) * .035),
+      explore: this.personality.explore * (1 + Math.min(3, this.zoneChanges) * .08),
+      pvp: this.personality.pvp * (ent.lv < 3 ? .18 : 1),
+      social: this.personality.social,
+    }
+
+    if (hpPct < .48 || ent.pot <= 1) {
+      weights.social += 1.4 + this.personality.caution
+      weights.pvp *= .12
+      weights.explore *= .55
+    }
+    if (zoneAt(this.game.world, ent.x, ent.y).safe) {
+      weights.social += .35
+      weights.pvp *= .45
+    }
+    if (this.focus) weights[this.focus] *= .72
+
+    this.focus = weightedFocus(weights)
+    this.focusUntil = now + 90000 + rnd() * 240000
+    return this.focus
+  }
+
+  startFocusedActivity(now: number) {
+    const ent = this.ent
+    this.chooseFocus(now)
+    this.targetId = null
+    this.pvpTargetId = null
+
+    if (this.focus === 'social') {
+      this.routeTo('vila', false)
+      return
+    }
+
+    if (this.focus === 'mission') {
+      const missionZone = missionZoneFor(ent)
+      this.routeTo(missionZone || zoneForLevel(ent.lv), false)
+      return
+    }
+
+    if (this.focus === 'grind') {
+      this.routeTo(zoneForLevel(ent.lv), false)
+      return
+    }
+
+    if (this.focus === 'explore') {
+      const choices = ['campo', 'floresta', 'lago', 'vale'].filter(z => z !== this.zone)
+      this.routeTo(pick(choices.length ? choices : ['campo', 'floresta', 'lago', 'vale']), false)
+      return
+    }
+
+    // PvP: aproxima-se das áreas de conflito, mas ainda viaja normalmente.
+    this.routeTo('vale', false)
   }
 
   inCombat() {
@@ -158,16 +285,15 @@ export class BotBrain {
   }
 
   onLevelUp() {
-    if (rnd() < 0.3) this.game.chatOut(this.ent, pick(CHAT.levelUp).replace('{lv}', String(this.ent.lv)))
-    const nz = zoneForBot(this.ent)
-    if (nz !== this.zone) this.zone = nz
+    if (rnd() < 0.3 * this.personality.social) this.game.chatOut(this.ent, pick(CHAT.levelUp).replace('{lv}', String(this.ent.lv)))
+    this.focusUntil = Math.min(this.focusUntil, Date.now() + 25000)
   }
 
   onMissionAdvance() {
     this.targetId = null
-    const nz = zoneForBot(this.ent)
-    this.zone = nz
-    this.routeTo(nz, false)
+    this.focusUntil = 0
+    this.chooseFocus(Date.now(), true)
+    this.startFocusedActivity(Date.now())
   }
 
   onPvpHit(src: PlayerEnt) {
@@ -213,8 +339,14 @@ export class BotBrain {
       if (now - ent.lastChatAt > 8000) this.game.chatOut(ent, this.replyText)
     }
     if (now >= this.nextChatAt) {
-      this.nextChatAt = now + 50000 + rnd() * 240000 * (1.4 - this.chattiness)
-      if (rnd() < 0.3 + this.chattiness * 0.55) this.ambientChat()
+      const social = this.personality.social
+      this.nextChatAt = now + 65000 + rnd() * 260000 * (1.25 - social * .35)
+      if (rnd() < .10 + social * .42) this.ambientChat()
+    }
+
+    if (now >= this.focusUntil && !this.inCombat()) {
+      this.chooseFocus(now, true)
+      if (this.state !== 'travel') this.startFocusedActivity(now)
     }
 
     const rival = this.pvpTargetId != null ? this.game.players.get(this.pvpTargetId) : undefined
@@ -225,13 +357,15 @@ export class BotBrain {
     this.pvpTargetId = null
 
     if (this.state !== 'rest' && now >= this.nextPvpScanAt && !zoneAt(this.game.world, ent.x, ent.y).safe) {
-      this.nextPvpScanAt = now + 1200 + rnd() * 1800
+      const pvpIntent = this.focus === 'pvp' ? 1 : this.focus === 'explore' ? .48 : .20
+      this.nextPvpScanAt = now + 1400 + rnd() * (2400 - this.personality.pvp * 700)
       const candidate = this.findPvpTarget()
       if (candidate) {
         const d = dist(candidate, ent)
-        if (d < 150 || rnd() < this.pvpAggression) {
+        const engageChance = Math.min(.96, this.personality.pvp * pvpIntent + (d < 125 ? .42 : 0))
+        if (rnd() < engageChance) {
           this.pvpTargetId = candidate.id
-          this.pvpUntil = now + 9000 + rnd() * 8000
+          this.pvpUntil = now + 7000 + rnd() * (9000 + this.personality.pvp * 5000)
           this.targetId = null
           this.thinkPvp(candidate, dt, now)
           return
@@ -250,7 +384,9 @@ export class BotBrain {
     const ent = this.ent
     if (ent.pot < 3) ent.pot = 4
     if (now >= this.restUntil) {
-      this.routeTo(this.zone, false)
+      this.focusUntil = 0
+      this.chooseFocus(now, true)
+      this.startFocusedActivity(now)
       return
     }
     if (now >= this.wanderAt) {
@@ -274,10 +410,13 @@ export class BotBrain {
       if (this.returningToVillage) {
         this.returningToVillage = false
         this.state = 'rest'
-        this.restUntil = Date.now() + 5000 + rnd() * 9000
+        const socialBonus = this.focus === 'social' ? 18000 : 0
+        this.restUntil = Date.now() + 5000 + rnd() * 10000 + socialBonus
       } else {
         this.state = 'grind'
-        this.grindUntil = Date.now() + 240000 + rnd() * 300000
+        const base = this.focus === 'explore' ? 70000 : this.focus === 'pvp' ? 90000 : 180000
+        const span = this.focus === 'grind' ? 300000 : 150000
+        this.grindUntil = Date.now() + base + rnd() * span
       }
       return
     }
@@ -309,14 +448,9 @@ export class BotBrain {
     const monsters = this.game.monsters
 
     if (now >= this.grindUntil) {
-      this.grindUntil = now + 240000 + rnd() * 300000
-      if (rnd() < 0.35) {
-        const missionZone = missionZoneFor(ent)
-        this.zone = missionZone && rnd() < 0.88 ? missionZone : (rnd() < 0.65 ? zoneForLevel(ent.lv) : pick(['campo', 'floresta', 'lago', 'vale']))
-        this.routeTo(this.zone, false)
-        return
-      }
-      this.routeTo(this.zone, true)
+      this.focusUntil = 0
+      this.chooseFocus(now, true)
+      this.startFocusedActivity(now)
       return
     }
 
@@ -326,14 +460,18 @@ export class BotBrain {
       let best: MonsterEnt | undefined
       let bestScore = Infinity
       const mission = MISSIONS[ent.mi]
+      const missionDriven = this.focus === 'mission'
+      const searchRange = this.focus === 'explore' ? 260 : this.focus === 'pvp' ? 190 : 500
       for (const m of monsters.values()) {
         if (m.dead) continue
         const missionMatch = !mission || mission.monster === 'any' || mission.monster === m.t
-        if (!missionMatch && mission?.monster !== 'any') continue
+        if (missionDriven && !missionMatch && mission?.monster !== 'any') continue
         if (m.lv > ent.lv + (missionMatch ? 7 : 4)) continue
         const d = dist(m, ent)
-        if (d >= 500) continue
-        const score = d + Math.max(0, m.lv - ent.lv) * 8
+        if (d >= searchRange) continue
+        let score = d + Math.max(0, m.lv - ent.lv) * 8
+        if (missionMatch) score -= 110 * this.personality.mission
+        if (this.focus === 'grind') score -= Math.max(0, ent.lv - m.lv) * 2
         if (score < bestScore) { best = m; bestScore = score }
       }
       if (best) { target = best; this.targetId = best.id }
@@ -363,11 +501,11 @@ export class BotBrain {
       this.game.usePotion(ent)
       if (rnd() < 0.2) this.game.chatOut(ent, pick(CHAT.potion))
     }
-    if (hpPct < 0.15 && rnd() < 0.02) {
-      this.state = 'travel'
+    const retreatAt = .11 + this.personality.caution * .16
+    if (hpPct < retreatAt && rnd() < .08 + this.personality.caution * .08) {
       this.routeTo('vila', false)
       this.targetId = null
-      if (rnd() < 0.3) this.game.chatOut(ent, 'aff to fora daqui, volto ja')
+      if (rnd() < 0.12 * this.personality.social) this.game.chatOut(ent, 'vou recuperar na vila, ja volto')
       return
     }
 
@@ -414,9 +552,20 @@ export class BotBrain {
       const d = dist(p, ent)
       if (d > 520) continue
       const levelGap = p.lv - ent.lv
-      if (levelGap > 5 && hpPct < 0.82) continue
+      if (levelGap > 2 + Math.round((1-this.personality.caution)*6) && hpPct < .72 + this.personality.caution*.18) continue
       const targetHpPct = p.hp / Math.max(1, 90 + 28 * (p.lv - 1))
-      const score = d + Math.max(0, levelGap) * 34 + targetHpPct * 42 - Math.max(0, -levelGap) * 7
+      let alliesOnTarget = 0
+      let nearbyAllyNeedsHelp = false
+      for (const ally of this.game.players.values()) {
+        if (ally.id === ent.id || ally.dead || ally.village !== ent.village || !ally.bot) continue
+        if (ally.bot.pvpTargetId === p.id) {
+          alliesOnTarget++
+          if (dist(ally, ent) < 420) nearbyAllyNeedsHelp = true
+        }
+      }
+      let score = d + Math.max(0, levelGap) * 34 + targetHpPct * 42 - Math.max(0, -levelGap) * 7
+      if (nearbyAllyNeedsHelp) score -= 95 * (1 - this.personality.caution * .35)
+      if (alliesOnTarget > 2) score += (alliesOnTarget - 2) * 120
       if (score < bestScore) {
         best = p
         bestScore = score
@@ -438,9 +587,12 @@ export class BotBrain {
     const levelGap = target.lv - ent.lv
 
     if (hpPct < 0.38 && ent.pot > 0 && now >= ent.cds[5]) this.game.usePotion(ent)
-    if (hpPct < 0.20 || (levelGap >= 4 && hpPct < 0.55)) {
+    const retreatHp = .12 + this.personality.caution * .24
+    const dangerousGap = 2 + Math.round(this.personality.caution * 5)
+    if (hpPct < retreatHp || (levelGap >= dangerousGap && hpPct < .42 + this.personality.caution * .30)) {
       this.pvpTargetId = null
       this.targetId = null
+      this.focusUntil = Math.min(this.focusUntil, now + 25000)
       this.routeTo('vila', false)
       return
     }
@@ -488,7 +640,11 @@ export class BotBrain {
     void sameZoneOk
     const ent = this.ent
     if (zone !== 'vila') {
-      if (zone !== this.zone) this.grindAnchor = null
+      if (zone !== this.zone) {
+        this.lastZone = this.zone
+        this.zoneChanges++
+        this.grindAnchor = null
+      }
       this.zone = zone
       // escolhe uma clareira estável até a próxima viagem
       this.grindAnchor = pick(GRIND_ANCHORS[this.zone] || [ZONE_ANCHORS[this.zone] || ZONE_ANCHORS.vila])
