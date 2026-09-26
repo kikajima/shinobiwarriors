@@ -355,18 +355,21 @@ export class BotBrain {
     }
 
     const target = clue.target as PlayerEnt
-    this.bountyLastKnown = { x: target.x, y: target.y, at: now, targetId: target.id }
 
     if (clue.safe) {
       const exits = VILLAGE_EXITS[target.village] || []
       const exit = [...exits].sort((a,b)=>dist(ent,a)-dist(ent,b))[0]
       if (!exit) return false
+      // Nunca grave a posição interna da vila como última pista. Durante o cooldown
+      // o bot deve manter um ponto de espera fora da safe zone, não invadir a vila.
+      this.bountyLastKnown = { x: exit.x, y: exit.y, at: now, targetId: target.id }
       this.setPurpose('bounty', `aguardando ${target.name} sair de ${clue.zone}`, target.id)
       this.state = 'travel'
       this.pvpTargetId = null
       return this.routeToPoint(exit.x, exit.y)
     }
 
+    this.bountyLastKnown = { x: target.x, y: target.y, at: now, targetId: target.id }
     this.setPurpose('bounty', `rastreando contrato: ${target.name}`, target.id)
     this.state = 'travel'
     this.pvpTargetId = null
