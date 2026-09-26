@@ -110,6 +110,7 @@ const ALL_ANCHORS = [
   ...Object.values(ZONE_ANCHORS),
   ...Object.values(GRIND_ANCHORS).flat(),
   ...Object.values(VILLAGE_CENTERS),
+  ...Object.values(VILLAGE_EXITS).flat(),
 ]
 
 function mulberry32(seed: number) {
