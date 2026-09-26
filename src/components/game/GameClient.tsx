@@ -20,10 +20,11 @@ import { PlayersPanel } from './ui/PlayersPanel'
 import { Minimap } from './ui/Minimap'
 import { TouchControls } from './ui/TouchControls'
 import { InventoryPanel } from './ui/InventoryPanel'
+import { EquipmentShopPanel } from './ui/EquipmentShopPanel'
 import LoginScreen from './ui/LoginScreen'
 import { PixelPanel } from './ui/pixel'
 import { Button } from '@/components/ui/button'
-import { VILLAGE_IDS, VILLAGE_NAMES, type BountyCompleteMsg, type BountyMsg, type ElementId, type InventoryMsg, type InventorySlotView, type VillageId, type RosterEnt, type ShopMsg, type WelcomeData } from './types'
+import { VILLAGE_IDS, VILLAGE_NAMES, type BountyCompleteMsg, type BountyMsg, type ElementId, type EquipmentShopMsg, type EquipmentSlot, type EquipmentStateMsg, type InventoryMsg, type InventorySlotView, type VillageId, type RosterEnt, type ShopMsg, type WelcomeData } from './types'
 
 const SAVED_KEY = 'shinobi-online-save'
 const VALID_ELEMENTS = new Set<ElementId>(['fogo', 'agua', 'raio', 'vento', 'terra'])
@@ -45,6 +46,8 @@ export default function GameClient() {
   const [playersOpen, setPlayersOpen] = useState(false)
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [inventorySlots, setInventorySlots] = useState<InventorySlotView[]>([])
+  const [equipmentState, setEquipmentState] = useState<EquipmentStateMsg | null>(null)
+  const [equipmentShop, setEquipmentShop] = useState<EquipmentShopMsg | null>(null)
   const [muted, setMuted] = useState(false)
   const [deathBy, setDeathBy] = useState<string | null>(null)
   const [shop, setShop] = useState<ShopMsg | null>(null)
@@ -94,7 +97,7 @@ export default function GameClient() {
   useEffect(() => {
     const onWelcome = (w: WelcomeData) => {
       welcomeRef.current = w
-      setJoinError(null); setLoading(false); setPhase('playing'); setRoster(w.roster); setHud(null); setChatMsgs([]); setDeathBy(null); setShop(null); setInventoryOpen(false); setInventorySlots(w.self.inventory || []); setBounty(w.self.bounty ? { open:false, active:true, contract:w.self.bounty } : null); setBountyDone(null)
+      setJoinError(null); setLoading(false); setPhase('playing'); setRoster(w.roster); setHud(null); setChatMsgs([]); setDeathBy(null); setShop(null); setEquipmentShop(null); setInventoryOpen(false); setInventorySlots(w.self.inventory || []); setEquipmentState({loadout:w.self.equipment,stats:w.self.equipmentStats,gold:w.self.gold,forgeCosts:{head:null,torso:null,boots:null,gloves:null,accessory1:null,accessory2:null,pants:null}}); setBounty(w.self.bounty ? { open:false, active:true, contract:w.self.bounty } : null); setBountyDone(null)
       setEngineVersion((v) => v + 1)
     }
     net.on('welcome', onWelcome)
@@ -165,9 +168,11 @@ export default function GameClient() {
     const onBounty = (d: BountyMsg) => setBounty(d)
     const onBountyComplete = (d: BountyCompleteMsg) => { setBounty(null); setBountyDone(d); audio.play('lvl') }
     const onInventory = (d: InventoryMsg) => setInventorySlots(d.slots || [])
+    const onEquipment = (d: EquipmentStateMsg) => setEquipmentState(d)
+    const onEquipmentShop = (d: EquipmentShopMsg) => { setEquipmentShop(d.open ? d : null); setEquipmentState(d.equipment) }
     const onDead = (d: { by: string }) => setDeathBy(d.by)
     const onRevived = (d: { x: number; y: number }) => { setDeathBy(null); engine.setSelfPos(d.x, d.y) }
-    net.on('chat', onChat); net.on('sys', onSys); net.on('mission', onMission); net.on('shop', onShop); net.on('bounty', onBounty); net.on('bountyComplete', onBountyComplete); net.on('inventory', onInventory); net.on('dead', onDead); net.on('revived', onRevived)
+    net.on('chat', onChat); net.on('sys', onSys); net.on('mission', onMission); net.on('shop', onShop); net.on('bounty', onBounty); net.on('bountyComplete', onBountyComplete); net.on('inventory', onInventory); net.on('equipment', onEquipment); net.on('equipmentShop', onEquipmentShop); net.on('dead', onDead); net.on('revived', onRevived)
 
     const hudTimer = setInterval(() => {
       setHud(engine.buildHud())
@@ -178,7 +183,7 @@ export default function GameClient() {
 
     return () => {
       clearInterval(hudTimer); ro.disconnect(); engine.stop(); input.detach(); engineRef.current = null
-      for (const e of ['snapshot','fx','dmg','objDestroy','objRespawn','pJoin','pLeave','lvl','chat','sys','mission','shop','bounty','bountyComplete','inventory','dead','revived']) net.off(e)
+      for (const e of ['snapshot','fx','dmg','objDestroy','objRespawn','pJoin','pLeave','lvl','chat','sys','mission','shop','bounty','bountyComplete','inventory','equipment','equipmentShop','dead','revived']) net.off(e)
     }
   }, [phase, engineVersion, art])
 
@@ -242,7 +247,8 @@ export default function GameClient() {
       <PlayersPanel players={roster} selfId={welcome.id} open={playersOpen} /><Minimap engine={engineRef.current} />
       {zoneBanner ? <ZoneBanner key={zoneBanner.key} zone={zoneBanner.name} safe={zoneBanner.safe} /> : null}
     </> : <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"><div className="font-pixel animate-pulse text-[10px] tracking-widest text-[#e8d5a9]">CARREGANDO MUNDO...</div></div>}
-    {welcome ? <InventoryPanel open={inventoryOpen} slots={inventorySlots} capacity={welcome.inventoryCapacity || 24} itemDefs={welcome.items || []} onClose={() => setInventoryOpen(false)} onUse={(slot) => net.inventoryUse(slot)} /> : null}
+    {welcome ? <InventoryPanel open={inventoryOpen} slots={inventorySlots} capacity={welcome.inventoryCapacity || 24} itemDefs={welcome.items || []} equipment={equipmentState} onClose={() => setInventoryOpen(false)} onUse={(slot) => net.inventoryUse(slot)} onEquip={(slot,target) => net.equipItem(slot,target)} onUnequip={(slot) => net.unequipItem(slot)} /> : null}
+    {welcome && equipmentShop ? <EquipmentShopPanel shop={equipmentShop} level={hud?.lvl || welcome.self.lv} inventory={inventorySlots} itemDefs={welcome.items || []} onClose={() => setEquipmentShop(null)} onBuy={(id) => net.buyEquipment(id)} onForge={(slot: EquipmentSlot) => net.forgeEquipment(slot)} /> : null}
     {shop ? <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#0f0d0a99] p-4"><PixelPanel className="w-[min(400px,92vw)] !p-4" title={shop.name || "LOJA DE SUPRIMENTOS"}>
       <button type="button" onClick={() => setShop(null)} className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center border border-[#3a2f22] text-[#a89b7d]" aria-label="Fechar"><X className="h-4 w-4" /></button>
       <div className="font-retro mt-3 space-y-2 text-[15px] text-[#e8d5a9]"><div className="flex items-center gap-2"><FlaskConical className="h-5 w-5 text-[#e88a8a]" /><span className="flex-1">Poção de cura (55% do HP)</span><span className="flex items-center gap-1 text-[#f0d060]"><Coins className="h-4 w-4" />{shop.price}</span></div>
