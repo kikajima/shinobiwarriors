@@ -38,6 +38,7 @@ export interface ShopPoint {
   x: number
   y: number
   village: VillageId
+  kind: 'supply' | 'equipment'
 }
 
 export interface BountyNpcPoint {
@@ -292,11 +293,11 @@ export function genWorld(): World {
   let nextShopId = 1
   let nextBountyNpcId = 1
 
-  const shopNames: Record<VillageId, [string, string]> = {
-    folha: ['Ichiraku Ramen', 'Armazém da Folha'],
-    areia: ['Mercado do Deserto', 'Casa de Chá da Areia'],
-    nevoa: ['Suprimentos da Névoa', 'Casa de Chá da Névoa'],
-    terra: ['Armazém da Pedra', 'Casa de Chá da Terra'],
+  const shopNames: Record<VillageId, [string, string, string]> = {
+    folha: ['Ichiraku Ramen', 'Armazém da Folha', 'Arsenal da Folha'],
+    areia: ['Mercado do Deserto', 'Casa de Chá da Areia', 'Arsenal da Areia'],
+    nevoa: ['Suprimentos da Névoa', 'Casa de Chá da Névoa', 'Arsenal da Névoa'],
+    terra: ['Armazém da Pedra', 'Casa de Chá da Terra', 'Arsenal da Terra'],
   }
 
   const placeVillage = (id: VillageId) => {
@@ -314,11 +315,12 @@ export function genWorld(): World {
     ]
     for (const [x, y] of houses) placeObject('house', x, y, true)
 
-    const shopDefs: [number, number, string][] = [
-      [c.x - 10, c.y - 5, shopNames[id][0]],
-      [c.x + 7, c.y - 5, shopNames[id][1]],
+    const shopDefs: [number, number, string, 'supply' | 'equipment'][] = [
+      [c.x - 10, c.y - 5, shopNames[id][0], 'supply'],
+      [c.x + 7, c.y - 5, shopNames[id][1], 'supply'],
+      [c.x - 10, c.y + 3, shopNames[id][2], 'equipment'],
     ]
-    for (const [x, y, name] of shopDefs) {
+    for (const [x, y, name, kind] of shopDefs) {
       placeObject('shop', x, y, true)
       shops.push({
         id: nextShopId++,
@@ -326,6 +328,7 @@ export function genWorld(): World {
         x: (x + 1.5) * 32,
         y: (y + 2.65) * 32,
         village: id,
+        kind,
       })
     }
 
