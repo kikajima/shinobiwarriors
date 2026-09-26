@@ -5,7 +5,22 @@
 import type { ElementId, VillageId } from './data'
 import type { BotBrain } from './bots'
 
-export type InventorySlot = { id: string; qty: number } | null
+export type EquipmentItemSlot = 'head' | 'torso' | 'boots' | 'gloves' | 'accessory' | 'pants'
+export type EquipmentSlot = 'head' | 'torso' | 'boots' | 'gloves' | 'accessory1' | 'accessory2' | 'pants'
+export interface EquipmentStats {
+  hp: number
+  chakra: number
+  attack: number
+  defense: number
+  speed: number
+  crit: number
+}
+export interface EquippedItem {
+  id: string
+  upgrade: number
+}
+export type EquipmentLoadout = Record<EquipmentSlot, EquippedItem | null>
+export type InventorySlot = { id: string; qty: number; upgrade?: number } | null
 
 export interface PlayerEnt {
   id: number
@@ -21,6 +36,7 @@ export interface PlayerEnt {
   gold: number
   pot: number
   inventory: InventorySlot[]
+  equipment: EquipmentLoadout
   x: number
   y: number
   dir: number // 0=baixo 1=baixo-esq 2=esq 3=cima-esq 4=cima 5=cima-dir 6=dir 7=baixo-dir
@@ -101,6 +117,7 @@ export interface SavedPlayer {
   gold: number
   pot: number
   inventory?: InventorySlot[]
+  equipment?: EquipmentLoadout
   bounty?: BountyContract | null
 }
 
@@ -114,6 +131,7 @@ export interface SavedBotProfile {
   gold: number
   pot: number
   inventory?: InventorySlot[]
+  equipment?: EquipmentLoadout
   mi: number
   mp: number
   bounty?: BountyContract | null
