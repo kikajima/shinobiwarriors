@@ -8,7 +8,7 @@
 
 import { io, type Socket } from 'socket.io-client'
 import type {
-  BountyCompleteMsg, BountyMsg, ChatMsg, DmgData, FxData, KillMsg, MapData, MissionMsg, RosterEnt,
+  BountyCompleteMsg, BountyMsg, ChatMsg, DmgData, FxData, InventoryMsg, KillMsg, MapData, MissionMsg, RosterEnt,
   ShopMsg, SnapshotData, WelcomeData,
 } from './types'
 
@@ -27,6 +27,7 @@ export type NetEvents = {
   shop: (d: ShopMsg) => void
   bounty: (d: BountyMsg) => void
   bountyComplete: (d: BountyCompleteMsg) => void
+  inventory: (d: InventoryMsg) => void
   dead: (d: { by: string }) => void
   revived: (d: { x: number; y: number }) => void
   pJoin: (d: RosterEnt) => void
@@ -103,6 +104,10 @@ export class NetClient {
 
   bountyAbandon() {
     this.socket?.emit('bountyAbandon', {})
+  }
+
+  inventoryUse(slot: number) {
+    this.socket?.emit('inventoryUse', { slot })
   }
 
   respawn() {
