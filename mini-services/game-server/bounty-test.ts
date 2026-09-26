@@ -19,10 +19,11 @@ hunter.lv = 6
 hunter.hp = maxHpOf(hunter.lv)
 hunter.pot = 5
 
-const contract = game.assignBounty(hunter, 1_000_000)
+const baseNow = Date.now()
+const contract = game.assignBounty(hunter, baseNow)
 if (!contract) throw new Error('não foi possível atribuir bounty')
 if (contract.targetVillage === hunter.village) throw new Error('bounty selecionou aliado da mesma vila')
-if (contract.expiresAt !== 1_000_000 + BOUNTY.duration) throw new Error('duração da bounty incorreta')
+if (contract.expiresAt !== baseNow + BOUNTY.duration) throw new Error('duração da bounty incorreta')
 
 const target: any = game.playerByName(contract.targetName)
 if (!target) throw new Error('alvo atribuído não está online')
@@ -34,11 +35,11 @@ hunter.y = 112.5 * 32
 target.x = 128.5 * 32
 target.y = 145.5 * 32
 target.dead = false
-const clue1 = game.trackBounty(hunter, 1_000_000, true)
+const clue1 = game.trackBounty(hunter, baseNow, true)
 if (!clue1.ok || !clue1.zone || !clue1.direction || !clue1.distance) throw new Error('tracking não retornou pista útil')
-const clueCooldown = game.trackBounty(hunter, 1_000_001, true)
+const clueCooldown = game.trackBounty(hunter, baseNow + 1, true)
 if (clueCooldown.ok || !clueCooldown.cooldown) throw new Error('tracking ignorou cooldown')
-const clue2 = game.trackBounty(hunter, 1_000_000 + BOUNTY.trackCooldown + 1, true)
+const clue2 = game.trackBounty(hunter, baseNow + BOUNTY.trackCooldown + 1, true)
 if (!clue2.ok) throw new Error('tracking não liberou após cooldown')
 
 // Bot visita o NPC, pega contrato e usa tracking para sair em perseguição.
@@ -52,7 +53,8 @@ if (!npc) throw new Error('NPC da vila do segundo bot ausente')
 hunter2.x = npc.x
 hunter2.y = npc.y
 hunter2.bot.villageTask = 'bounty'
-hunter2.bot.thinkRest(.05, 2_000_000)
+const botNow = Date.now()
+hunter2.bot.thinkRest(.05, botNow)
 if (!hunter2.bounty) throw new Error('bot não pegou contrato no Oficial de Caçadas')
 
 const hunted: any = game.playerByName(hunter2.bounty.targetName)
@@ -65,7 +67,7 @@ hunter2.y = 105.5 * 32
 hunter2.bounty.nextTrackAt = 0
 hunter2.bot.nextBountyPlanAt = 0
 hunter2.bot.focus = 'pvp'
-if (!hunter2.bot.planBountyHunt(2_100_000)) throw new Error('bot não planejou perseguição da bounty')
+if (!hunter2.bot.planBountyHunt(botNow + BOUNTY.trackCooldown + 1)) throw new Error('bot não planejou perseguição da bounty')
 if (hunter2.bot.purpose.kind !== 'bounty' || !hunter2.bot.route.length) throw new Error('bot não criou rota de bounty')
 
 // Abate PvP paga recompensa base em XP+ryō e bônus do contrato.
