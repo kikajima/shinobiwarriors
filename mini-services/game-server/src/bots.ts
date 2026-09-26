@@ -6,7 +6,7 @@
 
 import type { Game } from './game'
 import type { MonsterEnt, PlayerEnt } from './types'
-import { BOT_SPEED, CHAT, MISSIONS, SKILLS } from './data'
+import { BOT_SPEED, CHAT, MISSIONS, MONSTERS, POTION, SKILLS, maxChOf, maxHpOf } from './data'
 import { GRIND_ANCHORS, ZONE_ANCHORS, VILLAGE_SPAWNS, tileWalkable, walkable, zoneAt, type World } from './world'
 
 const rnd = Math.random
@@ -17,7 +17,7 @@ const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
 export type BotFocus = 'mission' | 'grind' | 'explore' | 'pvp' | 'social'
 export const BOT_FOCUS_TYPES: BotFocus[] = ['mission', 'grind', 'explore', 'pvp', 'social']
 
-export type BotPurposeKind = 'mission' | 'hunt' | 'explore' | 'pvp' | 'recover' | 'social'
+export type BotPurposeKind = 'mission' | 'hunt' | 'explore' | 'pvp' | 'recover' | 'social' | 'heal' | 'shop' | 'prepare'
 export interface BotPurpose {
   kind: BotPurposeKind
   label: string
@@ -218,6 +218,11 @@ export class BotBrain {
   lastProgressAt = 0
   lastProgressPos = { x: 0, y: 0 }
   nextPurposeCheckAt = 0
+  villageTask: 'heal' | 'shop' | 'social' | 'depart' = 'heal'
+  villageRoute: { x: number; y: number }[] = []
+  villageRouteI = 0
+  villageTaskUntil = 0
+  villagePreparedAt = 0
 
   constructor(game: Game, ent: PlayerEnt) {
     this.game = game
@@ -228,38 +233,88 @@ export class BotBrain {
     const now = Date.now()
     this.nextChatAt = now + 15000 + rnd() * 90000 * (1.25 - this.personality.social * .45)
     this.chooseFocus(now, true)
-    this.startFocusedActivity(now)
+    if (zoneAt(this.game.world, ent.x, ent.y).safe && this.needsVillagePrep()) this.beginVillageRoutine(now)
+    else this.startFocusedActivity(now)
+  }
+
+  missionReady(): boolean {
+    const mission = MISSIONS[this.ent.mi]
+    if (!mission || mission.monster === 'any') return true
+    const def = MONSTERS[mission.monster]
+    if (!def) return true
+    if (def.boss) return this.ent.lv >= Math.max(10, def.lv - 2) && this.ent.pot >= 4
+    return def.lv <= this.ent.lv + 2
+  }
+
+  desiredPotionStock(): number {
+    const levelBonus = Math.min(3, Math.floor(this.ent.lv / 15))
+    return Math.max(3, Math.min(POTION.max, 3 + Math.round(this.personality.caution * 2) + levelBonus))
+  }
+
+  goldReserve(): number {
+    return 35 + Math.min(300, this.ent.lv * 4)
+  }
+
+  needsVillagePrep(): boolean {
+    const hpPct = this.ent.hp / Math.max(1, maxHpOf(this.ent.lv))
+    const chPct = this.ent.ch / Math.max(1, maxChOf(this.ent.lv))
+    const needsPotions = this.ent.pot < this.desiredPotionStock() && this.ent.gold >= POTION.price
+    return hpPct < .68 || chPct < .42 || needsPotions
   }
 
   chooseFocus(now: number, force = false): BotFocus {
     if (!force && now < this.focusUntil) return this.focus
     const ent = this.ent
-    const maxHp = Math.max(1, 90 + 28 * (ent.lv - 1))
-    const hpPct = ent.hp / maxHp
+    const hpPct = ent.hp / Math.max(1, maxHpOf(ent.lv))
     const mission = MISSIONS[ent.mi]
     const missionRemaining = mission ? Math.max(0, mission.need - ent.mp) / Math.max(1, mission.need) : 0
+    const ready = this.missionReady()
 
     const weights: Record<BotFocus, number> = {
-      mission: this.personality.mission * (1 + missionRemaining * .95),
-      grind: this.personality.grind * (1 + Math.max(0, 10 - ent.lv) * .035),
-      explore: this.personality.explore * (1 + Math.min(3, this.zoneChanges) * .08),
-      pvp: this.personality.pvp * (ent.lv < 3 ? .18 : 1),
-      social: this.personality.social,
+      mission: this.personality.mission * (1 + missionRemaining * 1.15) * (ready ? 1 : .10),
+      grind: this.personality.grind * (ready ? 1 : 2.35),
+      explore: this.personality.explore,
+      pvp: this.personality.pvp,
+      social: this.personality.social * .48,
     }
 
-    if (hpPct < .48 || ent.pot <= 1) {
-      weights.social += 1.4 + this.personality.caution
-      weights.pvp *= .12
-      weights.explore *= .55
+    // Shinobis iniciantes se comportam como iniciantes: missão e treino antes de PvP.
+    if (ent.lv < 5) {
+      weights.mission *= 2.4
+      weights.grind *= 1.8
+      weights.explore *= .48
+      weights.pvp *= .04
+      weights.social *= .28
+    } else if (ent.lv < 10) {
+      weights.mission *= 1.7
+      weights.grind *= 1.35
+      weights.pvp *= .30
+      weights.social *= .55
     }
-    if (zoneAt(this.game.world, ent.x, ent.y).safe) {
-      weights.social += .35
-      weights.pvp *= .45
+
+    if (this.needsVillagePrep()) {
+      weights.social += 1.6 + this.personality.caution
+      weights.pvp *= .10
+      weights.explore *= .45
+    } else if (hpPct > .85 && ent.pot >= 3) {
+      weights.social *= .58
     }
-    if (this.focus) weights[this.focus] *= .72
+
+    if (this.focus) weights[this.focus] *= .70
 
     this.focus = weightedFocus(weights)
-    this.focusUntil = now + 90000 + rnd() * 240000
+    const early = ent.lv < 10
+    this.focusUntil = now + (early ? 45000 : 75000) + rnd() * (early ? 90000 : 180000)
+    return this.focus
+  }
+
+  chooseProductiveFocus(now: number): BotFocus {
+    this.chooseFocus(now, true)
+    if (this.focus === 'social') {
+      if (this.missionReady() && this.personality.mission >= this.personality.grind * .72) this.focus = 'mission'
+      else this.focus = rnd() < .72 ? 'grind' : 'explore'
+      this.focusUntil = now + 60000 + rnd() * 150000
+    }
     return this.focus
   }
 
@@ -270,25 +325,64 @@ export class BotBrain {
   findPreferredMonster(missionOnly = false): MonsterEnt | null {
     const ent = this.ent
     const mission = MISSIONS[ent.mi]
+    if (missionOnly && !this.missionReady()) return null
+
     let best: MonsterEnt | null = null
     let bestScore = Infinity
     for (const m of this.game.monsters.values()) {
       if (m.dead) continue
       const missionMatch = !mission || mission.monster === 'any' || mission.monster === m.t
       if (missionOnly && !missionMatch && mission?.monster !== 'any') continue
-      if (m.lv > ent.lv + (missionMatch ? 6 : 3)) continue
+      if (m.lv > ent.lv + 2) continue
+      if (m.boss && ent.lv < 10) continue
+
       const d = dist(m, ent)
       let claimers = 0
       for (const p of this.game.players.values()) {
         if (p.id === ent.id || p.kind !== 'bot' || !p.bot) continue
         if (p.bot.targetId === m.id || p.bot.purpose.targetId === m.id) claimers++
       }
-      let score = d + Math.max(0, m.lv - ent.lv) * 70 + claimers * 210
-      if (missionMatch) score -= 260 * this.personality.mission
-      if (m.lv <= ent.lv + 1) score -= 45 * this.personality.grind
+
+      const idealLv = Math.min(ent.lv + 1, 12)
+      let score = d + Math.abs(idealLv - m.lv) * 42 + claimers * 210
+      score -= Math.min(260, m.xp * .55)
+      if (missionMatch) score -= 300 * this.personality.mission
       if (score < bestScore) { best = m; bestScore = score }
     }
     return best
+  }
+
+  beginVillageRoutine(now: number) {
+    this.state = 'rest'
+    this.returningToVillage = false
+    this.targetId = null
+    this.pvpTargetId = null
+    this.route = []
+    this.routeI = 0
+    this.routeGoal = null
+    this.villageRoute = []
+    this.villageRouteI = 0
+    this.villageTask = 'heal'
+    this.villageTaskUntil = now + 30000
+    this.setPurpose('prepare', 'se preparando na vila')
+  }
+
+  followVillageRoute(targetX: number, targetY: number, dt: number): boolean {
+    const ent = this.ent
+    if (!this.villageRoute.length || this.villageRouteI >= this.villageRoute.length) {
+      this.villageRoute = findBotPath(this.game.world, ent.x, ent.y, targetX, targetY)
+      this.villageRouteI = 0
+      if (!this.villageRoute.length) return false
+    }
+    const wp = this.villageRoute[this.villageRouteI]
+    this.stepToward(wp.x, wp.y, Math.min(BOT_SPEED * .72, 105) * dt)
+    if (dist(ent, wp) < 22) this.villageRouteI++
+    return this.villageRouteI >= this.villageRoute.length
+  }
+
+  clearVillageRoute() {
+    this.villageRoute = []
+    this.villageRouteI = 0
   }
 
   routeToPoint(targetX: number, targetY: number): boolean {
@@ -326,13 +420,27 @@ export class BotBrain {
     this.targetId = null
     this.pvpTargetId = null
 
+    if (this.needsVillagePrep() && !zoneAt(this.game.world, ent.x, ent.y).safe) {
+      this.setPurpose('recover', 'voltando para se preparar')
+      this.routeTo('vila', false)
+      return
+    }
+
     if (this.focus === 'social') {
-      this.setPurpose('social', 'voltando à vila para descansar')
+      this.setPurpose('social', 'fazendo uma pausa curta na vila')
       this.routeTo('vila', false)
       return
     }
 
     if (this.focus === 'mission') {
+      if (!this.missionReady()) {
+        this.focus = 'grind'
+        this.setPurpose('hunt', `treinando para: ${MISSIONS[ent.mi]?.name || 'próxima missão'}`)
+        const training = this.findPreferredMonster(false)
+        if (training && this.routeToMonster(training, 'hunt')) return
+        this.routeTo(zoneForLevel(ent.lv), false)
+        return
+      }
       const target = this.findPreferredMonster(true)
       if (target && this.routeToMonster(target, 'mission')) return
       const missionZone = missionZoneFor(ent)
@@ -344,7 +452,7 @@ export class BotBrain {
     if (this.focus === 'grind') {
       const target = this.findPreferredMonster(false)
       if (target && this.routeToMonster(target, 'hunt')) return
-      this.setPurpose('hunt', 'procurando inimigos para treinar')
+      this.setPurpose('hunt', 'procurando inimigos adequados para treinar')
       this.routeTo(zoneForLevel(ent.lv), false)
       return
     }
@@ -353,6 +461,15 @@ export class BotBrain {
       const choices = ['campo', 'floresta', 'lago', 'vale'].filter(z => z !== this.zone)
       this.setPurpose('explore', 'explorando uma nova região')
       this.routeTo(pick(choices.length ? choices : ['campo', 'floresta', 'lago', 'vale']), false)
+      return
+    }
+
+    if (ent.lv < 5 || ent.pot < 2) {
+      this.focus = 'grind'
+      this.setPurpose('hunt', 'treinando antes de procurar PvP')
+      const target = this.findPreferredMonster(false)
+      if (target && this.routeToMonster(target, 'hunt')) return
+      this.routeTo(zoneForLevel(ent.lv), false)
       return
     }
 
@@ -407,10 +524,7 @@ export class BotBrain {
       if (this.respawnAt && now >= this.respawnAt) {
         this.respawnAt = 0
         this.game.respawnPlayer(ent)
-        this.state = 'rest'
-        this.restUntil = now + 4000 + rnd() * 8000
-        this.route = []
-        this.routeI = 0
+        this.beginVillageRoutine(now)
       }
       return
     }
@@ -464,21 +578,72 @@ export class BotBrain {
 
   thinkRest(dt: number, now: number) {
     const ent = this.ent
-    if (ent.pot < 3) ent.pot = 4
-    if (now >= this.restUntil) {
+    const fountain = this.game.world.fountains.find(f => f.village === ent.village)
+    const shops = this.game.world.shops.filter(q => q.village === ent.village)
+
+    if (this.villageTask === 'heal') {
+      const hpFull = ent.hp >= maxHpOf(ent.lv) * .98
+      const chFull = ent.ch >= maxChOf(ent.lv) * .98
+      if (!fountain || (hpFull && chFull)) {
+        this.villageTask = 'shop'
+        this.clearVillageRoute()
+      } else if (dist(ent, fountain) < 108) {
+        this.game.botUseFountain(ent)
+        this.villageTask = 'shop'
+        this.clearVillageRoute()
+      } else {
+        this.setPurpose('heal', 'indo até a fonte recuperar forças')
+        this.followVillageRoute(fountain.x, fountain.y, dt)
+        return
+      }
+    }
+
+    if (this.villageTask === 'shop') {
+      const desired = this.desiredPotionStock()
+      const canBuy = ent.pot < desired && ent.gold >= POTION.price
+      if (!canBuy || !shops.length) {
+        this.villageTask = 'social'
+        this.villageTaskUntil = now + 1800 + rnd() * (1800 + this.personality.social * 3500)
+        this.clearVillageRoute()
+      } else {
+        const shop = [...shops].sort((a,b)=>dist(ent,a)-dist(ent,b))[0]
+        if (dist(ent, shop) < 140) {
+          this.setPurpose('shop', `comprando suprimentos em ${shop.name}`)
+          this.game.botBuyPotions(ent, desired, this.goldReserve())
+          this.villageTask = 'social'
+          this.villageTaskUntil = now + 1800 + rnd() * (1800 + this.personality.social * 3500)
+          this.clearVillageRoute()
+        } else {
+          this.setPurpose('shop', `indo comprar suprimentos em ${shop.name}`)
+          this.followVillageRoute(shop.x, shop.y, dt)
+          return
+        }
+      }
+    }
+
+    if (this.villageTask === 'social') {
+      this.setPurpose('social', 'organizando equipamentos antes de sair')
+      if (now < this.villageTaskUntil) {
+        if (now >= this.wanderAt) {
+          this.wanderAt = now + 1200 + rnd() * 1800
+          this.wanderAng = rnd() * Math.PI * 2
+        }
+        const home = VILLAGE_SPAWNS[ent.village] || VILLAGE_SPAWNS.folha
+        const wx = ent.x + Math.cos(this.wanderAng) * 36
+        const wy = ent.y + Math.sin(this.wanderAng) * 36
+        if (dist({x:wx,y:wy}, home) < 300) this.stepToward(wx, wy, 24 * dt)
+        return
+      }
+      this.villageTask = 'depart'
+    }
+
+    if (this.villageTask === 'depart') {
+      this.villagePreparedAt = now
       this.focusUntil = 0
-      this.chooseFocus(now, true)
+      this.chooseProductiveFocus(now)
+      this.setPurpose('prepare', 'saindo da vila para progredir')
       this.startFocusedActivity(now)
-      return
     }
-    if (now >= this.wanderAt) {
-      this.wanderAt = now + 2000 + rnd() * 4000
-      this.wanderAng = rnd() * Math.PI * 2
-    }
-    const vila = VILLAGE_SPAWNS[ent.village] || VILLAGE_SPAWNS.folha
-    const wx = ent.x + Math.cos(this.wanderAng) * 45
-    const wy = ent.y + Math.sin(this.wanderAng) * 45
-    if (dist({ x: wx, y: wy }, vila) < 260) this.stepToward(wx, wy, 30 * dt)
   }
 
   thinkTravel(dt: number, now: number) {
@@ -504,10 +669,7 @@ export class BotBrain {
       this.targetId = null
       this.routeGoal = null
       if (this.returningToVillage) {
-        this.returningToVillage = false
-        this.state = 'rest'
-        const socialBonus = this.focus === 'social' ? 18000 : 0
-        this.restUntil = now + 5000 + rnd() * 10000 + socialBonus
+        this.beginVillageRoutine(now)
       } else {
         this.state = 'grind'
         const base = this.focus === 'explore' ? 70000 : this.focus === 'pvp' ? 90000 : 180000
@@ -579,13 +741,14 @@ export class BotBrain {
       let best: MonsterEnt | undefined
       let bestScore = Infinity
       const mission = MISSIONS[ent.mi]
-      const missionDriven = this.focus === 'mission'
+      const missionDriven = this.focus === 'mission' && this.missionReady()
       const searchRange = this.focus === 'explore' ? 260 : this.focus === 'pvp' ? 190 : 500
       for (const m of monsters.values()) {
         if (m.dead) continue
         const missionMatch = !mission || mission.monster === 'any' || mission.monster === m.t
         if (missionDriven && !missionMatch && mission?.monster !== 'any') continue
-        if (m.lv > ent.lv + (missionMatch ? 7 : 4)) continue
+        if (m.lv > ent.lv + 2) continue
+        if (m.boss && ent.lv < 10) continue
         const d = dist(m, ent)
         if (d >= searchRange) continue
         let score = d + Math.max(0, m.lv - ent.lv) * 8
@@ -805,7 +968,8 @@ export class BotBrain {
       // Uma rota impossível nunca vira caminhada cega.
       this.state = 'rest'
       this.returningToVillage = false
-      this.restUntil = Date.now() + 1200 + rnd() * 1800
+      this.villageTask = 'depart'
+      this.villageTaskUntil = Date.now() + 1000
       this.focusUntil = 0
     }
   }

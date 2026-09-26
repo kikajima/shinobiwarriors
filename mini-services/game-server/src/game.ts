@@ -238,6 +238,26 @@ export class Game {
  handleChat(socket,msg){const ent=this.entOf(socket);if(!ent)return;const now=Date.now();if(now-ent.lastChatAt<1200)return;ent.lastChatAt=now;const text=String(msg?.text||'').slice(0,120).trim();if(!text)return;this.chatOut(ent,text);scheduleBotReplies(this,ent,text)}
  handleInteract(socket){const ent=this.entOf(socket);if(!ent||ent.dead)return;const now=Date.now(),f=this.world.fountains.find(q=>dist(ent,q)<100);if(f){if(now-ent.lastHealAt>4000){ent.lastHealAt=now;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});socket.emit('sys',{t:'Você recuperou suas forças na fonte da vila.'})}return}const shop=this.world.shops.find(q=>dist(ent,q)<105);if(shop)socket.emit('shop',{open:true,name:shop.name,gold:ent.gold,pot:ent.pot,price:POTION.price})}
  handleBuyPotion(socket){const ent=this.entOf(socket);if(!ent)return;const shop=this.world.shops.find(q=>dist(ent,q)<145);if(!shop)return;if(ent.pot>=POTION.max){socket.emit('sys',{t:'Você já está carregando poções demais.'});return}if(ent.gold<POTION.price){socket.emit('sys',{t:'Ryō insuficiente! Cace monstros para ganhar mais.'});return}ent.gold-=POTION.price;ent.pot++;socket.emit('shop',{open:true,name:shop.name,gold:ent.gold,pot:ent.pot,price:POTION.price});socket.emit('sys',{t:'Poção comprada! Aperte Q para usar em combate.'})}
+ botUseFountain(ent){
+   if(!ent||ent.dead)return false;
+   const f=this.world.fountains.find(q=>q.village===ent.village&&dist(ent,q)<110);
+   if(!f)return false;
+   ent.lastHealAt=Date.now();ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);
+   this.emitNear(ent.x,ent.y,700,'fx',{k:'heal',x:ent.x,y:ent.y});
+   return true;
+ }
+ botBuyPotions(ent,target,reserve=0){
+   if(!ent||ent.dead)return 0;
+   const shop=this.world.shops.find(q=>q.village===ent.village&&dist(ent,q)<145);
+   if(!shop)return 0;
+   const wanted=Math.max(0,Math.min(POTION.max,Math.floor(target)||0));
+   let bought=0;
+   while(ent.pot<wanted&&ent.gold>=POTION.price){
+     if(ent.pot>0&&ent.gold-POTION.price<reserve)break;
+     ent.gold-=POTION.price;ent.pot++;bought++;
+   }
+   return bought;
+ }
  tick(){const dt=.05,now=Date.now();this.tickCount++;this.updateMonsters(dt,now);this.updateProjectiles(dt);this.updateRegen(dt,now);this.updateWorldRespawns(now);for(const p of this.players.values())if(p.bot)p.bot.think(dt,now);this.updateBotLifecycle(now);this.sendSnapshots(now);if(now>this.lastTip){this.lastTip=now+90000+rnd()*60000;this.sys(TIPS[Math.floor(rnd()*TIPS.length)])}if(now-this.lastSave>30000){this.lastSave=now;for(const p of this.players.values()){if(p.kind==='human')this.saved[p.name.toLowerCase()]={el:p.el,village:p.village,lv:p.lv,xp:p.xp,gold:p.gold,pot:p.pot};else if(p.kind==='bot')this.rememberBot(p)}saveReal(this.saved);saveBotReal(Object.fromEntries(this.botProfiles))}}
  updateMonsters(dt,now){for(const m of this.monsters.values()){if(m.dead){if(now>=m.respawnAt){m.dead=false;m.hp=m.maxHp;m.aggroId=null;m.burnUntil=0;m.burnNextAt=0;m.burnDamage=0;m.burnOwnerId=null;m.slowUntil=0;m.stunUntil=0;m.x=m.spawnX+(rnd()-.5)*60;m.y=m.spawnY+(rnd()-.5)*60;if(!walkable(this.world,m.x,m.y)){m.x=m.spawnX;m.y=m.spawnY}if(m.boss)this.sys('O Zetsu Ancião surgiu no Vale do Fim!')}continue}
 if(m.burnUntil>now&&m.burnOwnerId!=null&&now>=m.burnNextAt){
