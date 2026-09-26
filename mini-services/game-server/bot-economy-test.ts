@@ -1,9 +1,17 @@
 import { Game } from './src/game'
 import { POTION, maxChOf, maxHpOf } from './src/data'
+import { addItem, countItem, removeItem } from './src/inventory'
 
 const game = new Game({} as any)
 const bot: any = [...game.players.values()].find((p: any) => p.kind === 'bot' && p.bot)
 if (!bot) throw new Error('nenhum bot disponível')
+
+const setPotionCount = (qty: number) => {
+  const current = countItem(bot.inventory, 'healing_potion')
+  if (current > 0) removeItem(bot.inventory, 'healing_potion', current)
+  if (qty > 0) addItem(bot.inventory, 'healing_potion', qty)
+  game.syncPotionCount(bot)
+}
 
 // Fonte: recuperação real e física na vila.
 const fountain = game.world.fountains.find((f: any) => f.village === bot.village)
@@ -22,7 +30,7 @@ const shop = game.world.shops.find((s: any) => s.village === bot.village)
 if (!shop) throw new Error('loja da vila não encontrada')
 bot.x = shop.x
 bot.y = shop.y
-bot.pot = 0
+setPotionCount(0)
 bot.gold = 200
 const bought = game.botBuyPotions(bot, 5, 50)
 if (bought !== 5 || bot.pot !== 5 || bot.gold !== 200 - 5 * POTION.price) {
@@ -30,7 +38,7 @@ if (bought !== 5 || bot.pot !== 5 || bot.gold !== 200 - 5 * POTION.price) {
 }
 
 // Reserva de ryō é respeitada quando já existe pelo menos uma poção.
-bot.pot = 2
+setPotionCount(2)
 bot.gold = 100
 const reserved = game.botBuyPotions(bot, 6, 80)
 if (reserved !== 0 || bot.pot !== 2 || bot.gold !== 100) {
@@ -38,7 +46,7 @@ if (reserved !== 0 || bot.pot !== 2 || bot.gold !== 100) {
 }
 
 // Com zero poções, compra uma unidade de emergência mesmo usando parte da reserva.
-bot.pot = 0
+setPotionCount(0)
 bot.gold = 100
 const emergency = game.botBuyPotions(bot, 6, 80)
 if (emergency !== 1 || bot.pot !== 1 || bot.gold !== 75) {
@@ -46,7 +54,7 @@ if (emergency !== 1 || bot.pot !== 1 || bot.gold !== 75) {
 }
 
 // Sem dinheiro não existe reposição mágica de poções.
-bot.pot = 0
+setPotionCount(0)
 bot.gold = 0
 bot.hp = maxHpOf(bot.lv)
 bot.ch = maxChOf(bot.lv)
@@ -58,7 +66,7 @@ if (bot.pot !== 0) throw new Error('bot recebeu poção grátis na vila')
 // Missão forte demais deve ser adiada em favor de treino.
 bot.mi = 4 // boss
 bot.lv = 1
-bot.pot = POTION.max
+setPotionCount(POTION.max)
 if (bot.bot.missionReady()) throw new Error('bot Lv1 considerou missão do boss segura')
 bot.bot.focus = 'mission'
 bot.bot.focusUntil = Date.now() + 60000
@@ -69,7 +77,7 @@ if (bot.bot.purpose.kind === 'mission' || bot.bot.purpose.kind === 'pvp') {
 
 // Ao chegar ao nível adequado, a missão do boss passa a ser considerada.
 bot.lv = 10
-bot.pot = 4
+setPotionCount(4)
 if (!bot.bot.missionReady()) throw new Error('bot preparado não liberou missão do boss')
 
 // Pausa social é curta: depois do preparo o bot deve sair para progredir.
@@ -77,7 +85,7 @@ bot.x = fountain.x
 bot.y = fountain.y
 bot.hp = maxHpOf(bot.lv)
 bot.ch = maxChOf(bot.lv)
-bot.pot = bot.bot.desiredPotionStock()
+setPotionCount(bot.bot.desiredPotionStock())
 bot.bot.beginVillageRoutine(Date.now())
 bot.bot.villageTask = 'social'
 bot.bot.villageTaskUntil = Date.now() - 1
