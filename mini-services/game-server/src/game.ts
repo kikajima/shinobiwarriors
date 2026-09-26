@@ -105,7 +105,7 @@ export class Game {
  gearStats(ent){return equipmentStats(ent?.equipment)}
  maxHp(ent){return Math.max(1,Math.round(maxHpOf(ent.lv)+this.gearStats(ent).hp))}
  maxCh(ent){return Math.max(1,Math.round(maxChOf(ent.lv)+this.gearStats(ent).chakra))}
- attack(ent){return Math.max(1,this.attack(ent)+this.gearStats(ent).attack)}
+ attack(ent){return Math.max(1,atkOf(ent.lv)+this.gearStats(ent).attack)}
  defense(ent){return Math.max(0,Math.min(.35,this.gearStats(ent).defense))}
  critChance(ent){return Math.max(0,Math.min(.40,CRIT_CHANCE+this.gearStats(ent).crit))}
  moveSpeed(ent){const base=ent?.kind==='bot'?BOT_SPEED:PLAYER_SPEED;return base+this.gearStats(ent).speed}
