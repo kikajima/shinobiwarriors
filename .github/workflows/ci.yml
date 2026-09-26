@@ -89,6 +89,10 @@ jobs:
         working-directory: mini-services/game-server
         run: bun inventory-test.ts
 
+      - name: Validate equipment and forge system
+        working-directory: mini-services/game-server
+        run: bun equipment-test.ts
+
       - name: Smoke test multiplayer server
         working-directory: mini-services/game-server
         run: |
