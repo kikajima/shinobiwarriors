@@ -17,7 +17,9 @@ for (const id of villages) {
   const zone = world.zones.find((z) => z.village === id)
   if (!zone?.safe) throw new Error(`zona segura ausente: ${id}`)
   const shops = world.shops.filter((s) => s.village === id)
-  if (shops.length !== 2) throw new Error(`${id} deveria ter 2 lojas, veio ${shops.length}`)
+  if (shops.length !== 3) throw new Error(`${id} deveria ter 3 lojas, veio ${shops.length}`)
+  if (shops.filter((s) => s.kind === 'supply').length !== 2) throw new Error(`${id} deveria ter 2 lojas de suprimentos`)
+  if (shops.filter((s) => s.kind === 'equipment').length !== 1) throw new Error(`${id} deveria ter 1 arsenal`)
   if (shops.some((s) => !walkable(world, s.x, s.y))) throw new Error(`NPC de loja bloqueado em ${id}`)
 }
 
