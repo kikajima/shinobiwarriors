@@ -1,8 +1,9 @@
-import { BASIC, BOUNTY, CRIT_CHANCE, CRIT_MULT, MAX_LEVEL, MONSTERS, MISSIONS, BOT_NAMES, POTION, PLAYER_SPEED, SKILLS, TIPS, VILLAGE_IDS, VILLAGE_NAMES, maxChOf, maxHpOf, atkOf, xpNeedOf, } from './data';
+import { BASIC, BOT_SPEED, BOUNTY, CRIT_CHANCE, CRIT_MULT, MAX_LEVEL, MONSTERS, MISSIONS, BOT_NAMES, POTION, PLAYER_SPEED, SKILLS, TIPS, VILLAGE_IDS, VILLAGE_NAMES, maxChOf, maxHpOf, atkOf, xpNeedOf, } from './data';
 import { DESTRUCTIBLE_HP, DESTRUCTIBLE_REGEN_MS, destroyWorldObject, restoreWorldObject, genWorld, walkable, zoneAt, VILLAGE_SPAWNS } from './world';
 import { BotBrain, botGreetHuman, scheduleBotReplies, BOT_TARGET } from './bots';
 import { loadBotSave, loadSave, saveBotReal, saveReal } from './persist';
 import { INVENTORY_CAPACITY, ITEMS, addItem, countItem, itemDefsPayload, normalizeInventory, removeFromSlot, removeItem, rollLoot } from './inventory';
+import { EQUIPMENT_ITEMS, EQUIPMENT_SLOTS, equipmentCatalogPayload, equipmentDef, equipmentPower, equipmentStats, forgeCost, normalizeEquipment, validEquipmentSlot } from './equipment';
 const EL_LIST = ['fogo', 'agua', 'raio', 'vento', 'terra'];
 const BOT_NAMES_POOL = BOT_NAMES;
 const rnd = Math.random;
@@ -54,21 +55,21 @@ export class Game {
    const lv=Math.max(1,Math.min(MAX_LEVEL,Number(profile?.lv)||1));
    const xp=Math.max(0,Number(profile?.xp)||0);
    const home=VILLAGE_SPAWNS[village],spawn=this.findWalkableNear(home.x,home.y,100);
-   const inventory=normalizeInventory(profile?.inventory,profile?.pot??POTION.start),pot=countItem(inventory,'healing_potion');
+   const inventory=normalizeInventory(profile?.inventory,profile?.pot??POTION.start),pot=countItem(inventory,'healing_potion'),equipment=normalizeEquipment(profile?.equipment);
    const ent={
      id:this.nextId++,kind:'bot',name,el,village,pal:Number.isInteger(profile?.pal)?profile.pal:Math.floor(rnd()*64),
      lv,xp,hp:maxHpOf(lv),ch:maxChOf(lv),gold:Math.max(0,Number(profile?.gold)||80),
-     pot,inventory,
+     pot,inventory,equipment,
      x:spawn.x,y:spawn.y,dir:0,dead:false,known:new Map(),lastMoveAt:Date.now(),lastCombatAt:0,
      cds:[0,0,0,0,0,0],mi:Math.max(0,Math.min(MISSIONS.length-1,Number(profile?.mi)||0)),
      mp:Math.max(0,Number(profile?.mp)||0),lastChatAt:0,lastHealAt:0,bounty:profile?.bounty&&profile.bounty.expiresAt>Date.now()?{...profile.bounty}:null
    };
-   ent.bot=new BotBrain(this,ent);this.players.set(ent.id,ent);return ent;
+   ent.hp=this.maxHp(ent);ent.ch=this.maxCh(ent);ent.bot=new BotBrain(this,ent);this.players.set(ent.id,ent);return ent;
  }
  rememberBot(ent){
    if(!ent||ent.kind!=='bot')return;
    this.botProfiles.set(ent.name.toLowerCase(),{
-     el:ent.el,village:ent.village,pal:ent.pal,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot,inventory:ent.inventory,mi:ent.mi,mp:ent.mp,
+     el:ent.el,village:ent.village,pal:ent.pal,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot,inventory:ent.inventory,equipment:ent.equipment,mi:ent.mi,mp:ent.mp,
      bounty:ent.bounty&&ent.bounty.expiresAt>Date.now()?ent.bounty:null
    });
  }
@@ -93,14 +94,98 @@ export class Game {
    const requested=VILLAGE_IDS.includes(requestedVillage)?requestedVillage:'folha';
    const village=saved?.village&&VILLAGE_IDS.includes(saved.village)?saved.village:requested;
    const home=VILLAGE_SPAWNS[village],spawn=this.findWalkableNear(home.x,home.y,20);
-   const inventory=normalizeInventory(saved?.inventory,saved?.pot??POTION.start),pot=countItem(inventory,'healing_potion');
-   const ent={id:this.nextId++,kind:'human',name:finalName,el,village,pal:Math.floor(rnd()*64),lv,xp:saved?saved.xp:0,hp:maxHpOf(lv),ch:maxChOf(lv),gold:saved?saved.gold:80,pot,inventory,x:spawn.x,y:spawn.y,dir:0,dead:false,socket,known:new Map(),lastMoveAt:Date.now(),lastCombatAt:0,cds:[0,0,0,0,0,0],mi:0,mp:0,lastChatAt:0,lastHealAt:0,bounty:saved?.bounty&&saved.bounty.expiresAt>Date.now()?{...saved.bounty}:null};
-   this.players.set(ent.id,ent);socket.data.pid=ent.id;
-   socket.emit('welcome',{id:ent.id,t:Date.now(),online:this.players.size,self:{n:ent.name,el,village:ent.village,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot,x:ent.x,y:ent.y,bounty:ent.bounty?this.bountyPayload(ent,false).contract:null,inventory:ent.inventory},inventoryCapacity:INVENTORY_CAPACITY,items:itemDefsPayload(),map:{w:this.world.w,h:this.world.h,tiles:this.world.tiles,objects:this.world.objects,zones:this.world.zones,fountains:this.world.fountains,fountain:this.world.fountain,shops:this.world.shops,bountyNpcs:this.world.bountyNpcs,shopNpc:this.world.shopNpc},skills:SKILLS[el].map(s=>({name:s.name,archetype:s.archetype,cd:s.cd,ch:s.ch,range:s.range})),missions:MISSIONS.map(m=>({name:m.name,monster:m.monster,need:m.need})),roster:[...this.players.values()].map(p=>({id:p.id,n:p.name,lv:p.lv,el:p.el,v:p.village,pal:p.pal}))});
+   const inventory=normalizeInventory(saved?.inventory,saved?.pot??POTION.start),pot=countItem(inventory,'healing_potion'),equipment=normalizeEquipment(saved?.equipment);
+   const ent={id:this.nextId++,kind:'human',name:finalName,el,village,pal:Math.floor(rnd()*64),lv,xp:saved?saved.xp:0,hp:maxHpOf(lv),ch:maxChOf(lv),gold:saved?saved.gold:80,pot,inventory,equipment,x:spawn.x,y:spawn.y,dir:0,dead:false,socket,known:new Map(),lastMoveAt:Date.now(),lastCombatAt:0,cds:[0,0,0,0,0,0],mi:0,mp:0,lastChatAt:0,lastHealAt:0,bounty:saved?.bounty&&saved.bounty.expiresAt>Date.now()?{...saved.bounty}:null};
+   ent.hp=this.maxHp(ent);ent.ch=this.maxCh(ent);this.players.set(ent.id,ent);socket.data.pid=ent.id;
+   socket.emit('welcome',{id:ent.id,t:Date.now(),online:this.players.size,self:{n:ent.name,el,village:ent.village,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot,x:ent.x,y:ent.y,bounty:ent.bounty?this.bountyPayload(ent,false).contract:null,inventory:ent.inventory,equipment:ent.equipment,equipmentStats:this.gearStats(ent)},inventoryCapacity:INVENTORY_CAPACITY,items:itemDefsPayload(),map:{w:this.world.w,h:this.world.h,tiles:this.world.tiles,objects:this.world.objects,zones:this.world.zones,fountains:this.world.fountains,fountain:this.world.fountain,shops:this.world.shops,bountyNpcs:this.world.bountyNpcs,shopNpc:this.world.shopNpc},skills:SKILLS[el].map(s=>({name:s.name,archetype:s.archetype,cd:s.cd,ch:s.ch,range:s.range})),missions:MISSIONS.map(m=>({name:m.name,monster:m.monster,need:m.need})),roster:[...this.players.values()].map(p=>({id:p.id,n:p.name,lv:p.lv,el:p.el,v:p.village,pal:p.pal}))});
    if(ent.bounty)this.emitBounty(ent,false);this.broadcast('pJoin',{id:ent.id,n:ent.name,lv:ent.lv,el:ent.el,v:ent.village,pal:ent.pal});this.sys(`${ent.name} entrou no jogo.`);botGreetHuman(this,ent);return{ok:true};
  }
- removeHuman(socket){const ent=this.players.get(socket.data?.pid);if(!ent)return;this.players.delete(ent.id);this.broadcast('pLeave',{id:ent.id});this.sys(`${ent.name} saiu do jogo.`);this.saved[ent.name.toLowerCase()]={el:ent.el,village:ent.village,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot,inventory:ent.inventory,bounty:ent.bounty&&ent.bounty.expiresAt>Date.now()?ent.bounty:null};saveReal(this.saved)}
+ removeHuman(socket){const ent=this.players.get(socket.data?.pid);if(!ent)return;this.players.delete(ent.id);this.broadcast('pLeave',{id:ent.id});this.sys(`${ent.name} saiu do jogo.`);this.saved[ent.name.toLowerCase()]={el:ent.el,village:ent.village,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot,inventory:ent.inventory,equipment:ent.equipment,bounty:ent.bounty&&ent.bounty.expiresAt>Date.now()?ent.bounty:null};saveReal(this.saved)}
  entOf(socket){return this.players.get(socket.data?.pid)}
+ gearStats(ent){return equipmentStats(ent?.equipment)}
+ maxHp(ent){return Math.max(1,Math.round(maxHpOf(ent.lv)+this.gearStats(ent).hp))}
+ maxCh(ent){return Math.max(1,Math.round(maxChOf(ent.lv)+this.gearStats(ent).chakra))}
+ attack(ent){return Math.max(1,this.attack(ent)+this.gearStats(ent).attack)}
+ defense(ent){return Math.max(0,Math.min(.35,this.gearStats(ent).defense))}
+ critChance(ent){return Math.max(0,Math.min(.40,CRIT_CHANCE+this.gearStats(ent).crit))}
+ moveSpeed(ent){const base=ent?.kind==='bot'?BOT_SPEED:PLAYER_SPEED;return base+this.gearStats(ent).speed}
+ equipmentStatePayload(ent){
+   const forgeCosts={};
+   for(const slot of EQUIPMENT_SLOTS)forgeCosts[slot]=forgeCost(ent?.equipment?.[slot]);
+   return{loadout:ent?.equipment||normalizeEquipment(null),stats:this.gearStats(ent),gold:ent?.gold||0,forgeCosts};
+ }
+ emitEquipment(ent){if(ent?.kind==='human'&&ent.socket)ent.socket.emit('equipment',this.equipmentStatePayload(ent))}
+ equipmentShopNear(ent,radius=150){return this.world.shops.find(q=>q.kind==='equipment'&&q.village===ent.village&&dist(ent,q)<radius)}
+ equipmentShopPayload(ent,shop){return{open:true,name:shop.name,gold:ent.gold,catalog:equipmentCatalogPayload(),equipment:this.equipmentStatePayload(ent)}}
+ equipFromInventory(ent,index,targetSlot){
+   if(!ent?.inventory||!Number.isInteger(index)||index<0||index>=ent.inventory.length)return false;
+   const inv=ent.inventory[index],def=inv?equipmentDef(inv.id):null;
+   if(!inv||!def||ent.lv<def.equipment.requiredLv)return false;
+   let slot=targetSlot;
+   if(!slot){
+     if(def.equipment.slot==='accessory'){
+       if(!ent.equipment.accessory1)slot='accessory1';
+       else if(!ent.equipment.accessory2)slot='accessory2';
+       else slot=equipmentPower(ent.equipment.accessory1)<=equipmentPower(ent.equipment.accessory2)?'accessory1':'accessory2';
+     }else slot=def.equipment.slot;
+   }
+   if(!EQUIPMENT_SLOTS.includes(slot)||!validEquipmentSlot(def.equipment.slot,slot))return false;
+   const old=ent.equipment[slot],beforeHp=this.maxHp(ent),beforeCh=this.maxCh(ent);
+   ent.equipment[slot]={id:def.id,upgrade:Math.max(0,Math.min(11,Math.floor(Number(inv.upgrade)||0)))};
+   ent.inventory[index]=old?{id:old.id,qty:1,upgrade:old.upgrade}:null;
+   const newHp=this.maxHp(ent),newCh=this.maxCh(ent);
+   if(newHp<beforeHp)ent.hp=Math.min(ent.hp,newHp);
+   if(newCh<beforeCh)ent.ch=Math.min(ent.ch,newCh);
+   this.emitInventory(ent);this.emitEquipment(ent);return true;
+ }
+ unequipSlot(ent,slot){
+   if(!ent?.equipment||!EQUIPMENT_SLOTS.includes(slot)||!ent.equipment[slot])return false;
+   const empty=ent.inventory.findIndex(v=>!v);if(empty<0)return false;
+   const item=ent.equipment[slot],beforeHp=this.maxHp(ent),beforeCh=this.maxCh(ent);
+   ent.inventory[empty]={id:item.id,qty:1,upgrade:item.upgrade};ent.equipment[slot]=null;
+   ent.hp=Math.min(ent.hp,this.maxHp(ent));ent.ch=Math.min(ent.ch,this.maxCh(ent));
+   this.emitInventory(ent);this.emitEquipment(ent);return true;
+ }
+ handleEquip(socket,msg){const ent=this.entOf(socket);if(!ent||ent.dead)return;const ok=this.equipFromInventory(ent,Math.floor(Number(msg?.slot)),String(msg?.target||''));if(!ok)socket.emit('sys',{t:'Não foi possível equipar esse item.'})}
+ handleUnequip(socket,msg){const ent=this.entOf(socket);if(!ent||ent.dead)return;const slot=String(msg?.slot||'');if(!this.unequipSlot(ent,slot))socket.emit('sys',{t:'Não foi possível desequipar. Verifique se há espaço no inventário.'})}
+ handleBuyEquipment(socket,msg){
+   const ent=this.entOf(socket);if(!ent||ent.dead)return;const shop=this.equipmentShopNear(ent);if(!shop)return;
+   const def=equipmentDef(String(msg?.itemId||''));if(!def)return;
+   if(ent.lv<def.equipment.requiredLv){socket.emit('sys',{t:'Seu nível ainda é baixo para esse equipamento.'});return}
+   if(ent.gold<def.equipment.price){socket.emit('sys',{t:'Ryō insuficiente para esse equipamento.'});return}
+   if(addItem(ent.inventory,def.id,1)!==1){socket.emit('sys',{t:'Seu inventário está cheio.'});return}
+   ent.gold-=def.equipment.price;this.emitInventory(ent);socket.emit('equipmentShop',this.equipmentShopPayload(ent,shop));
+ }
+ handleForge(socket,msg){
+   const ent=this.entOf(socket);if(!ent||ent.dead)return;const shop=this.equipmentShopNear(ent);if(!shop)return;
+   const slot=String(msg?.slot||'');if(!EQUIPMENT_SLOTS.includes(slot))return;
+   const item=ent.equipment[slot],cost=forgeCost(item);if(!item||!cost){socket.emit('sys',{t:'Esse equipamento já atingiu +11 ou não pode ser forjado.'});return}
+   if(ent.gold<cost.gold){socket.emit('sys',{t:'Ryō insuficiente para a forja.'});return}
+   for(const [id,qty] of Object.entries(cost.materials))if(countItem(ent.inventory,id)<qty){socket.emit('sys',{t:'Materiais insuficientes para a forja.'});return}
+   ent.gold-=cost.gold;for(const [id,qty] of Object.entries(cost.materials))removeItem(ent.inventory,id,qty);
+   item.upgrade=Math.min(11,item.upgrade+1);this.emitInventory(ent);this.emitEquipment(ent);
+   socket.emit('equipmentShop',this.equipmentShopPayload(ent,shop));socket.emit('sys',{t:ITEMS[item.id].name+' agora está +'+item.upgrade+'!'});
+ }
+ botImproveEquipment(ent,reserve=0){
+   if(!ent||ent.dead||!this.equipmentShopNear(ent,150))return false;
+   const candidates=Object.values(EQUIPMENT_ITEMS).filter(def=>def.equipment.requiredLv<=ent.lv&&def.equipment.price<=Math.max(0,ent.gold-reserve));
+   let best=null;
+   for(const def of candidates){
+     let target=def.equipment.slot;
+     if(target==='accessory')target=equipmentPower(ent.equipment.accessory1)<=equipmentPower(ent.equipment.accessory2)?'accessory1':'accessory2';
+     const gain=equipmentPower({id:def.id,upgrade:0})-equipmentPower(ent.equipment[target]);
+     if(gain>.25&&(!best||gain/Math.max(1,def.equipment.price)>best.score))best={def,target,score:gain/Math.max(1,def.equipment.price)};
+   }
+   if(best){ent.gold-=best.def.equipment.price;ent.equipment[best.target]={id:best.def.id,upgrade:0};ent.hp=Math.min(ent.hp,this.maxHp(ent));ent.ch=Math.min(ent.ch,this.maxCh(ent));return true}
+   const forgeable=EQUIPMENT_SLOTS.map(slot=>({slot,item:ent.equipment[slot],cost:forgeCost(ent.equipment[slot])})).filter(x=>x.item&&x.cost);
+   forgeable.sort((a,b)=>(a.item.upgrade-b.item.upgrade)||(a.cost.gold-b.cost.gold));
+   for(const x of forgeable){
+     if(ent.gold-x.cost.gold<reserve)continue;
+     let ok=true;for(const [id,qty] of Object.entries(x.cost.materials))if(countItem(ent.inventory,id)<qty)ok=false;
+     if(!ok)continue;ent.gold-=x.cost.gold;for(const [id,qty] of Object.entries(x.cost.materials))removeItem(ent.inventory,id,qty);x.item.upgrade++;return true;
+   }
+   return false;
+ }
  syncPotionCount(ent){if(!ent?.inventory)return ent?.pot||0;ent.pot=countItem(ent.inventory,'healing_potion');return ent.pot}
  inventoryPayload(ent){return{slots:ent?.inventory||[],pot:this.syncPotionCount(ent)}}
  emitInventory(ent,extra={}){if(ent?.kind==='human'&&ent.socket)ent.socket.emit('inventory',{...this.inventoryPayload(ent),...extra})}
@@ -123,7 +208,7 @@ export class Game {
    if(!slot||!def?.usable)return false;
    if(slot.id==='healing_potion')return this.usePotion(ent);
    if(slot.id==='chakra_pill'){
-     const now=Date.now(),max=maxChOf(ent.lv);
+     const now=Date.now(),max=this.maxCh(ent);
      if(ent.dead||now<ent.cds[5]||ent.ch>=max)return false;
      if(!removeFromSlot(ent.inventory,index,1))return false;
      ent.cds[5]=now+POTION.cd;const gain=Math.max(1,Math.round(max*.35));
@@ -272,10 +357,11 @@ export class Game {
  }
  hitPlayer(target,attacker,base,mult=1,elemental=false){
    if(!this.canPvp(attacker,target))return false;
-   const now=Date.now(),lightningBonus=(elemental&&attacker.el==='raio')?0.12:0,crit=rnd()<CRIT_CHANCE+lightningBonus;
+   const now=Date.now(),lightningBonus=(elemental&&attacker.el==='raio')?0.12:0,crit=rnd()<Math.min(.65,this.critChance(attacker)+lightningBonus);
    let dmg=base*mult*PVP_DAMAGE_SCALE*(.9+rnd()*.2);
    if(crit)dmg*=CRIT_MULT;
    if(target.el==='terra')dmg*=.84;
+   dmg*=1-this.defense(target);
    dmg=Math.max(1,Math.round(dmg));
    target.hp-=dmg;attacker.lastCombatAt=now;target.lastCombatAt=now;
    this.emitNear(target.x,target.y,900,'dmg',{tid:target.id,x:target.x,y:target.y-30,v:dmg,c:crit?1:0,tp:1,pvp:1});
@@ -299,7 +385,7 @@ export class Game {
    const ent=this.entOf(socket);
    if(!ent||ent.dead)return;
    if(!isFiniteNumber(msg?.x)||!isFiniteNumber(msg?.y))return;
-   const now=Date.now(),dt=Math.max(0,Math.min(250,now-ent.lastMoveAt))/1000,maxD=(PLAYER_SPEED+55)*dt+34;
+   const now=Date.now(),dt=Math.max(0,Math.min(250,now-ent.lastMoveAt))/1000,maxD=(this.moveSpeed(ent)+55)*dt+34;
    let dx=msg.x-ent.x,dy=msg.y-ent.y;
    const requestedDistance=Math.hypot(dx,dy);
    if(!Number.isFinite(requestedDistance))return;
@@ -315,14 +401,14 @@ export class Game {
    ent.lastMoveAt=now;
    if(Number.isInteger(msg.dir)&&msg.dir>=0&&msg.dir<=7)ent.dir=msg.dir;
  }
- basicAttack(ent,tx,ty){if(ent.dead||zoneAt(this.world,ent.x,ent.y).safe)return;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const now=Date.now();if(now<ent.cds[0])return;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy);if(d<1){dx=0;dy=1}const ang=Math.atan2(dy,dx);ent.cds[0]=now+BASIC.cd;ent.lastCombatAt=now;this.emitNear(ent.x,ent.y,900,'fx',{k:'slash',sid:ent.id,x:ent.x,y:ent.y,tx,ty});for(const m of this.monsters.values()){if(m.dead)continue;const md=dist(m,ent);if(md>BASIC.range+m.radius)continue;const mang=Math.atan2(m.y-ent.y,m.x-ent.x);let diff=Math.abs(mang-ang);if(diff>Math.PI)diff=Math.PI*2-diff;if(diff<BASIC.arc*Math.PI/180)this.hitMonster(m,ent,atkOf(ent.lv),1)}for(const p of this.players.values()){if(!this.canPvp(ent,p))continue;const pd=dist(p,ent);if(pd>BASIC.range+PLAYER_HIT_RADIUS)continue;const pang=Math.atan2(p.y-ent.y,p.x-ent.x);let diff=Math.abs(pang-ang);if(diff>Math.PI)diff=Math.PI*2-diff;if(diff<BASIC.arc*Math.PI/180)this.hitPlayer(p,ent,atkOf(ent.lv),1,false)}}
- castSkill(ent,idx,tx,ty){if(ent.dead||idx<0||idx>3||zoneAt(this.world,ent.x,ent.y).safe)return false;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const s=SKILLS[ent.el][idx],now=Date.now();if(now<ent.cds[1+idx]||ent.ch<s.ch)return false;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy)||1,nx=dx/d,ny=dy/d;ent.dir=dir8(nx,ny);ent.cds[1+idx]=now+s.cd;ent.ch-=s.ch;ent.lastCombatAt=now;const el=ent.el;switch(s.archetype){case'proj':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,false,10,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'multi':{const count=Math.max(1,s.count||3),mid=(count-1)/2;for(let i=0;i<count;i++){const a=Math.atan2(ny,nx)+(i-mid)*.18;this.spawnProjectile(ent,idx,Math.cos(a),Math.sin(a),s.speed,s.mult,false,9,s.range)}this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;}case'line':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,true,15,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'dash':{const want=Math.min(s.range,d);let moved=0;const hitSet=new Set();while(moved<want){const step=Math.min(13,want-moved),nxp=ent.x+nx*step,nyp=ent.y+ny*step;if(!walkable(this.world,nxp,nyp)){const obj=this.destructibleAt(nxp,nyp,22);if(obj)this.hitWorldObject(obj,atkOf(ent.lv)*s.mult*1.15,ent);if(!walkable(this.world,nxp,nyp))break}ent.x=nxp;ent.y=nyp;moved+=step;for(const m of this.monsters.values())if(!m.dead&&!hitSet.has(m.id)&&dist(m,ent)<46+m.radius){hitSet.add(m.id);this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true)}for(const p of this.players.values())if(this.canPvp(ent,p)&&!hitSet.has(p.id)&&dist(p,ent)<46+PLAYER_HIT_RADIUS){hitSet.add(p.id);this.hitPlayer(p,ent,atkOf(ent.lv),s.mult,true)}}this.emitNear(ent.x,ent.y,1100,'fx',{k:'dash',sid:ent.id,el,x:ent.x,y:ent.y,tx:ent.x+nx*60,ty:ent.y+ny*60});break}case'aoe':{const cd=Math.min(s.range,d),cx=ent.x+nx*cd,cy=ent.y+ny*cd;this.emitNear(cx,cy,1100,'fx',{k:'aoe',sid:ent.id,el,x:cx,y:cy,r:s.radius});this.damageWorldRadius(cx,cy,s.radius,atkOf(ent.lv)*s.mult,ent);for(const m of this.monsters.values())if(!m.dead&&dist(m,{x:cx,y:cy})<s.radius+m.radius)this.hitMonster(m,ent,atkOf(ent.lv),s.mult,true);for(const p of this.players.values())if(this.canPvp(ent,p)&&dist(p,{x:cx,y:cy})<s.radius+PLAYER_HIT_RADIUS)this.hitPlayer(p,ent,atkOf(ent.lv),s.mult,true);break}}return true}
- spawnProjectile(ent,idx,nx,ny,speed,mult,pierce,radius,range){const id=this.nextId++;this.projectiles.set(id,{id,owner:ent.id,x:ent.x+nx*22,y:ent.y+ny*22-6,vx:nx*speed,vy:ny*speed,k:EL_LIST.indexOf(ent.el)*4+idx,dmg:atkOf(ent.lv)*mult,pierce,radius,ttl:range/speed,hitIds:new Set()})}
+ basicAttack(ent,tx,ty){if(ent.dead||zoneAt(this.world,ent.x,ent.y).safe)return;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const now=Date.now();if(now<ent.cds[0])return;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy);if(d<1){dx=0;dy=1}const ang=Math.atan2(dy,dx);ent.cds[0]=now+BASIC.cd;ent.lastCombatAt=now;this.emitNear(ent.x,ent.y,900,'fx',{k:'slash',sid:ent.id,x:ent.x,y:ent.y,tx,ty});for(const m of this.monsters.values()){if(m.dead)continue;const md=dist(m,ent);if(md>BASIC.range+m.radius)continue;const mang=Math.atan2(m.y-ent.y,m.x-ent.x);let diff=Math.abs(mang-ang);if(diff>Math.PI)diff=Math.PI*2-diff;if(diff<BASIC.arc*Math.PI/180)this.hitMonster(m,ent,this.attack(ent),1)}for(const p of this.players.values()){if(!this.canPvp(ent,p))continue;const pd=dist(p,ent);if(pd>BASIC.range+PLAYER_HIT_RADIUS)continue;const pang=Math.atan2(p.y-ent.y,p.x-ent.x);let diff=Math.abs(pang-ang);if(diff>Math.PI)diff=Math.PI*2-diff;if(diff<BASIC.arc*Math.PI/180)this.hitPlayer(p,ent,this.attack(ent),1,false)}}
+ castSkill(ent,idx,tx,ty){if(ent.dead||idx<0||idx>3||zoneAt(this.world,ent.x,ent.y).safe)return false;if(!isFiniteNumber(tx)||!isFiniteNumber(ty)){tx=ent.x;ty=ent.y+1}const s=SKILLS[ent.el][idx],now=Date.now();if(now<ent.cds[1+idx]||ent.ch<s.ch)return false;let dx=tx-ent.x,dy=ty-ent.y;const d=Math.hypot(dx,dy)||1,nx=dx/d,ny=dy/d;ent.dir=dir8(nx,ny);ent.cds[1+idx]=now+s.cd;ent.ch-=s.ch;ent.lastCombatAt=now;const el=ent.el;switch(s.archetype){case'proj':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,false,10,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'multi':{const count=Math.max(1,s.count||3),mid=(count-1)/2;for(let i=0;i<count;i++){const a=Math.atan2(ny,nx)+(i-mid)*.18;this.spawnProjectile(ent,idx,Math.cos(a),Math.sin(a),s.speed,s.mult,false,9,s.range)}this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;}case'line':this.spawnProjectile(ent,idx,nx,ny,s.speed,s.mult,true,15,s.range);this.emitNear(ent.x,ent.y,900,'fx',{k:'cast',sid:ent.id,el,x:ent.x,y:ent.y});break;case'dash':{const want=Math.min(s.range,d);let moved=0;const hitSet=new Set();while(moved<want){const step=Math.min(13,want-moved),nxp=ent.x+nx*step,nyp=ent.y+ny*step;if(!walkable(this.world,nxp,nyp)){const obj=this.destructibleAt(nxp,nyp,22);if(obj)this.hitWorldObject(obj,this.attack(ent)*s.mult*1.15,ent);if(!walkable(this.world,nxp,nyp))break}ent.x=nxp;ent.y=nyp;moved+=step;for(const m of this.monsters.values())if(!m.dead&&!hitSet.has(m.id)&&dist(m,ent)<46+m.radius){hitSet.add(m.id);this.hitMonster(m,ent,this.attack(ent),s.mult,true)}for(const p of this.players.values())if(this.canPvp(ent,p)&&!hitSet.has(p.id)&&dist(p,ent)<46+PLAYER_HIT_RADIUS){hitSet.add(p.id);this.hitPlayer(p,ent,this.attack(ent),s.mult,true)}}this.emitNear(ent.x,ent.y,1100,'fx',{k:'dash',sid:ent.id,el,x:ent.x,y:ent.y,tx:ent.x+nx*60,ty:ent.y+ny*60});break}case'aoe':{const cd=Math.min(s.range,d),cx=ent.x+nx*cd,cy=ent.y+ny*cd;this.emitNear(cx,cy,1100,'fx',{k:'aoe',sid:ent.id,el,x:cx,y:cy,r:s.radius});this.damageWorldRadius(cx,cy,s.radius,this.attack(ent)*s.mult,ent);for(const m of this.monsters.values())if(!m.dead&&dist(m,{x:cx,y:cy})<s.radius+m.radius)this.hitMonster(m,ent,this.attack(ent),s.mult,true);for(const p of this.players.values())if(this.canPvp(ent,p)&&dist(p,{x:cx,y:cy})<s.radius+PLAYER_HIT_RADIUS)this.hitPlayer(p,ent,this.attack(ent),s.mult,true);break}}return true}
+ spawnProjectile(ent,idx,nx,ny,speed,mult,pierce,radius,range){const id=this.nextId++;this.projectiles.set(id,{id,owner:ent.id,x:ent.x+nx*22,y:ent.y+ny*22-6,vx:nx*speed,vy:ny*speed,k:EL_LIST.indexOf(ent.el)*4+idx,dmg:this.attack(ent)*mult,pierce,radius,ttl:range/speed,hitIds:new Set()})}
  hitMonster(m,attacker,base,mult,elemental=false){
    if(!attacker||zoneAt(this.world,attacker.x,attacker.y).safe)return false;
    const now=Date.now();
    const lightningBonus=(elemental&&attacker.el==='raio')?0.12:0;
-   const crit=rnd()<CRIT_CHANCE+lightningBonus;
+   const crit=rnd()<Math.min(.65,this.critChance(attacker)+lightningBonus);
    let dmg=base*mult*(.9+rnd()*.2);
    if(crit)dmg*=CRIT_MULT;
    dmg=Math.max(1,Math.round(dmg));
@@ -340,7 +426,7 @@ export class Game {
          break;
        case'agua':
          m.slowUntil=Math.max(m.slowUntil,now+1800);
-         attacker.ch=Math.min(maxChOf(attacker.lv),attacker.ch+2);
+         attacker.ch=Math.min(this.maxCh(attacker),attacker.ch+2);
          break;
        case'vento':{
          if(!m.boss){
@@ -360,25 +446,25 @@ export class Game {
    if(m.hp<=0)this.killMonster(m,attacker);
  }
  killMonster(m,killer){m.hp=0;m.dead=true;m.aggroId=null;m.slamPending=null;m.respawnAt=Date.now()+m.respawnMs;this.forgetEntity(m.id);this.emitNear(m.x,m.y,1000,'fx',{k:'death',x:m.x,y:m.y,boss:m.boss?1:0});const gold=m.goldMin+Math.floor(rnd()*(m.goldMax-m.goldMin+1));killer.gold+=gold;this.broadcast('kill',{k:killer.name,klv:killer.lv,v:m.name,mlv:m.lv,g:gold,xp:m.xp});this.gainXp(killer,m.xp);this.progressMission(killer,m.t);for(const drop of rollLoot(m.t,rnd)){const added=this.giveItem(killer,drop.id,drop.qty,true);if(added<drop.qty&&killer.kind==='human')killer.socket?.emit('sys',{t:'Inventário cheio: parte do loot não coube.'})}}
- gainXp(ent,xp){if(ent.lv>=MAX_LEVEL)return;ent.xp+=xp;let leveled=false;while(ent.lv<MAX_LEVEL&&ent.xp>=xpNeedOf(ent.lv)){ent.xp-=xpNeedOf(ent.lv);ent.lv++;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);leveled=true}if(leveled){this.emitNear(ent.x,ent.y,1000,'fx',{k:'lvl',x:ent.x,y:ent.y});this.broadcast('lvl',{id:ent.id,lv:ent.lv,n:ent.name});if(ent.kind==='human')this.sys(`${ent.name} alcançou o nível ${ent.lv}!`);if(ent.bot)ent.bot.onLevelUp()}}
+ gainXp(ent,xp){if(ent.lv>=MAX_LEVEL)return;ent.xp+=xp;let leveled=false;while(ent.lv<MAX_LEVEL&&ent.xp>=xpNeedOf(ent.lv)){ent.xp-=xpNeedOf(ent.lv);ent.lv++;ent.hp=this.maxHp(ent);ent.ch=this.maxCh(ent);leveled=true}if(leveled){this.emitNear(ent.x,ent.y,1000,'fx',{k:'lvl',x:ent.x,y:ent.y});this.broadcast('lvl',{id:ent.id,lv:ent.lv,n:ent.name});if(ent.kind==='human')this.sys(`${ent.name} alcançou o nível ${ent.lv}!`);if(ent.bot)ent.bot.onLevelUp()}}
  progressMission(ent,monsterType){const mi=MISSIONS[ent.mi];if(!mi||(mi.monster!=='any'&&mi.monster!==monsterType))return;ent.mp++;if(ent.mp>=mi.need){ent.gold+=mi.gold;this.gainXp(ent,mi.xp);ent.socket?.emit('mission',{i:ent.mi,done:true,name:mi.name,gold:mi.gold,xp:mi.xp});if(ent.kind==='human')this.sys(`${ent.name} completou a missão "${mi.name}"!`);if(mi.repeat)ent.mp=0;else{ent.mi=Math.min(ent.mi+1,MISSIONS.length-1);ent.mp=0}const next=MISSIONS[ent.mi];ent.socket?.emit('mission',{i:ent.mi,name:next.name,monster:next.monster,need:next.need,prog:0});ent.bot?.onMissionAdvance()}else ent.socket?.emit('mission',{i:ent.mi,prog:ent.mp,need:mi.need,name:mi.name})}
- usePotion(ent){if(ent.dead||this.syncPotionCount(ent)<=0)return false;const now=Date.now();if(now<ent.cds[5])return false;if(!removeItem(ent.inventory,'healing_potion',1))return false;ent.cds[5]=now+POTION.cd;this.syncPotionCount(ent);const heal=Math.round(maxHpOf(ent.lv)*POTION.healPct);ent.hp=Math.min(maxHpOf(ent.lv),ent.hp+heal);ent.lastCombatAt=now;this.emitNear(ent.x,ent.y,800,'dmg',{x:ent.x,y:ent.y-26,v:heal,h:1});this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});this.emitInventory(ent);return true}
- damagePlayer(ent,dmg,src){if(ent.dead||zoneAt(this.world,ent.x,ent.y).safe)return;if(ent.el==='terra')dmg*=.84;ent.hp-=Math.round(dmg);ent.lastCombatAt=Date.now();this.emitNear(ent.x,ent.y,900,'dmg',{tid:ent.id,x:ent.x,y:ent.y-30,v:Math.round(dmg),c:0,tp:1});if(ent.hp<=0){ent.hp=0;ent.dead=true;this.forgetEntity(ent.id);this.emitNear(ent.x,ent.y,1000,'fx',{k:'pdeath',x:ent.x,y:ent.y});if(ent.kind==='human')ent.socket?.emit('dead',{by:src.name});else ent.bot?.onDeath(src)}}
- respawnPlayer(ent){if(!ent.dead)return;ent.dead=false;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);const home=VILLAGE_SPAWNS[ent.village]||VILLAGE_SPAWNS.folha,spawn=this.findWalkableNear(home.x,home.y,60);ent.x=spawn.x;ent.y=spawn.y;ent.cds=[0,0,0,0,0,0];if(ent.kind==='human')ent.socket?.emit('revived',{x:ent.x,y:ent.y})}
+ usePotion(ent){if(ent.dead||this.syncPotionCount(ent)<=0)return false;const now=Date.now();if(now<ent.cds[5])return false;if(!removeItem(ent.inventory,'healing_potion',1))return false;ent.cds[5]=now+POTION.cd;this.syncPotionCount(ent);const heal=Math.round(this.maxHp(ent)*POTION.healPct);ent.hp=Math.min(this.maxHp(ent),ent.hp+heal);ent.lastCombatAt=now;this.emitNear(ent.x,ent.y,800,'dmg',{x:ent.x,y:ent.y-26,v:heal,h:1});this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});this.emitInventory(ent);return true}
+ damagePlayer(ent,dmg,src){if(ent.dead||zoneAt(this.world,ent.x,ent.y).safe)return;if(ent.el==='terra')dmg*=.84;dmg*=1-this.defense(ent);ent.hp-=Math.round(dmg);ent.lastCombatAt=Date.now();this.emitNear(ent.x,ent.y,900,'dmg',{tid:ent.id,x:ent.x,y:ent.y-30,v:Math.round(dmg),c:0,tp:1});if(ent.hp<=0){ent.hp=0;ent.dead=true;this.forgetEntity(ent.id);this.emitNear(ent.x,ent.y,1000,'fx',{k:'pdeath',x:ent.x,y:ent.y});if(ent.kind==='human')ent.socket?.emit('dead',{by:src.name});else ent.bot?.onDeath(src)}}
+ respawnPlayer(ent){if(!ent.dead)return;ent.dead=false;ent.hp=this.maxHp(ent);ent.ch=this.maxCh(ent);const home=VILLAGE_SPAWNS[ent.village]||VILLAGE_SPAWNS.folha,spawn=this.findWalkableNear(home.x,home.y,60);ent.x=spawn.x;ent.y=spawn.y;ent.cds=[0,0,0,0,0,0];if(ent.kind==='human')ent.socket?.emit('revived',{x:ent.x,y:ent.y})}
  handleChat(socket,msg){const ent=this.entOf(socket);if(!ent)return;const now=Date.now();if(now-ent.lastChatAt<1200)return;ent.lastChatAt=now;const text=String(msg?.text||'').slice(0,120).trim();if(!text)return;this.chatOut(ent,text);scheduleBotReplies(this,ent,text)}
- handleInteract(socket){const ent=this.entOf(socket);if(!ent||ent.dead)return;const now=Date.now(),f=this.world.fountains.find(q=>dist(ent,q)<100);if(f){if(now-ent.lastHealAt>4000){ent.lastHealAt=now;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});socket.emit('sys',{t:'Você recuperou suas forças na fonte da vila.'})}return}const bountyNpc=this.world.bountyNpcs.find(q=>q.village===ent.village&&dist(ent,q)<110);if(bountyNpc){if(!ent.bounty||ent.bounty.expiresAt<=now)this.assignBounty(ent,now);this.emitBounty(ent,true,{error:ent.bounty?null:'Nenhum rival disponível para contrato agora.'});return}const shop=this.world.shops.find(q=>dist(ent,q)<105);if(shop)socket.emit('shop',{open:true,name:shop.name,gold:ent.gold,pot:ent.pot,price:POTION.price})}
- handleBuyPotion(socket){const ent=this.entOf(socket);if(!ent)return;const shop=this.world.shops.find(q=>dist(ent,q)<145);if(!shop)return;this.syncPotionCount(ent);if(ent.pot>=POTION.max){socket.emit('sys',{t:'Você já está carregando poções demais.'});return}if(ent.gold<POTION.price){socket.emit('sys',{t:'Ryō insuficiente! Cace monstros para ganhar mais.'});return}if(addItem(ent.inventory,'healing_potion',1)!==1){socket.emit('sys',{t:'Seu inventário está cheio.'});return}ent.gold-=POTION.price;this.syncPotionCount(ent);this.emitInventory(ent);socket.emit('shop',{open:true,name:shop.name,gold:ent.gold,pot:ent.pot,price:POTION.price});socket.emit('sys',{t:'Poção comprada! Aperte Q para usar em combate.'})}
+ handleInteract(socket){const ent=this.entOf(socket);if(!ent||ent.dead)return;const now=Date.now(),f=this.world.fountains.find(q=>dist(ent,q)<100);if(f){if(now-ent.lastHealAt>4000){ent.lastHealAt=now;ent.hp=this.maxHp(ent);ent.ch=this.maxCh(ent);this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});socket.emit('sys',{t:'Você recuperou suas forças na fonte da vila.'})}return}const bountyNpc=this.world.bountyNpcs.find(q=>q.village===ent.village&&dist(ent,q)<110);if(bountyNpc){if(!ent.bounty||ent.bounty.expiresAt<=now)this.assignBounty(ent,now);this.emitBounty(ent,true,{error:ent.bounty?null:'Nenhum rival disponível para contrato agora.'});return}const shop=this.world.shops.find(q=>dist(ent,q)<105);if(shop){if(shop.kind==='equipment')socket.emit('equipmentShop',this.equipmentShopPayload(ent,shop));else socket.emit('shop',{open:true,name:shop.name,gold:ent.gold,pot:ent.pot,price:POTION.price})}}
+ handleBuyPotion(socket){const ent=this.entOf(socket);if(!ent)return;const shop=this.world.shops.find(q=>q.kind==='supply'&&dist(ent,q)<145);if(!shop)return;this.syncPotionCount(ent);if(ent.pot>=POTION.max){socket.emit('sys',{t:'Você já está carregando poções demais.'});return}if(ent.gold<POTION.price){socket.emit('sys',{t:'Ryō insuficiente! Cace monstros para ganhar mais.'});return}if(addItem(ent.inventory,'healing_potion',1)!==1){socket.emit('sys',{t:'Seu inventário está cheio.'});return}ent.gold-=POTION.price;this.syncPotionCount(ent);this.emitInventory(ent);socket.emit('shop',{open:true,name:shop.name,gold:ent.gold,pot:ent.pot,price:POTION.price});socket.emit('sys',{t:'Poção comprada! Aperte Q para usar em combate.'})}
  botUseFountain(ent){
    if(!ent||ent.dead)return false;
    const f=this.world.fountains.find(q=>q.village===ent.village&&dist(ent,q)<110);
    if(!f)return false;
-   ent.lastHealAt=Date.now();ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);
+   ent.lastHealAt=Date.now();ent.hp=this.maxHp(ent);ent.ch=this.maxCh(ent);
    this.emitNear(ent.x,ent.y,700,'fx',{k:'heal',x:ent.x,y:ent.y});
    return true;
  }
  botBuyPotions(ent,target,reserve=0){
    if(!ent||ent.dead)return 0;
-   const shop=this.world.shops.find(q=>q.village===ent.village&&dist(ent,q)<145);
+   const shop=this.world.shops.find(q=>q.kind==='supply'&&q.village===ent.village&&dist(ent,q)<145);
    if(!shop)return 0;
    const wanted=Math.max(0,Math.min(POTION.max,Math.floor(target)||0));
    let bought=0;
@@ -389,7 +475,7 @@ export class Game {
    }
    return bought;
  }
- tick(){const dt=.05,now=Date.now();this.tickCount++;this.updateMonsters(dt,now);this.updateProjectiles(dt);this.updateRegen(dt,now);this.updateWorldRespawns(now);for(const p of this.players.values())if(p.bot)p.bot.think(dt,now);this.updateBotLifecycle(now);this.sendSnapshots(now);if(now>this.lastTip){this.lastTip=now+90000+rnd()*60000;this.sys(TIPS[Math.floor(rnd()*TIPS.length)])}if(now-this.lastSave>30000){this.lastSave=now;for(const p of this.players.values()){if(p.kind==='human')this.saved[p.name.toLowerCase()]={el:p.el,village:p.village,lv:p.lv,xp:p.xp,gold:p.gold,pot:p.pot,inventory:p.inventory,bounty:p.bounty&&p.bounty.expiresAt>now?p.bounty:null};else if(p.kind==='bot')this.rememberBot(p)}saveReal(this.saved);saveBotReal(Object.fromEntries(this.botProfiles))}}
+ tick(){const dt=.05,now=Date.now();this.tickCount++;this.updateMonsters(dt,now);this.updateProjectiles(dt);this.updateRegen(dt,now);this.updateWorldRespawns(now);for(const p of this.players.values())if(p.bot)p.bot.think(dt,now);this.updateBotLifecycle(now);this.sendSnapshots(now);if(now>this.lastTip){this.lastTip=now+90000+rnd()*60000;this.sys(TIPS[Math.floor(rnd()*TIPS.length)])}if(now-this.lastSave>30000){this.lastSave=now;for(const p of this.players.values()){if(p.kind==='human')this.saved[p.name.toLowerCase()]={el:p.el,village:p.village,lv:p.lv,xp:p.xp,gold:p.gold,pot:p.pot,inventory:p.inventory,equipment:p.equipment,bounty:p.bounty&&p.bounty.expiresAt>now?p.bounty:null};else if(p.kind==='bot')this.rememberBot(p)}saveReal(this.saved);saveBotReal(Object.fromEntries(this.botProfiles))}}
  updateMonsters(dt,now){for(const m of this.monsters.values()){if(m.dead){if(now>=m.respawnAt){m.dead=false;m.hp=m.maxHp;m.aggroId=null;m.burnUntil=0;m.burnNextAt=0;m.burnDamage=0;m.burnOwnerId=null;m.slowUntil=0;m.stunUntil=0;m.x=m.spawnX+(rnd()-.5)*60;m.y=m.spawnY+(rnd()-.5)*60;if(!walkable(this.world,m.x,m.y)){m.x=m.spawnX;m.y=m.spawnY}if(m.boss)this.sys('O Zetsu Ancião surgiu no Vale do Fim!')}continue}
 if(m.burnUntil>now&&m.burnOwnerId!=null&&now>=m.burnNextAt){
   m.burnNextAt=now+650;
@@ -414,7 +500,7 @@ if(m.boss&&m.slamPending&&now>=m.slamPending.at){const sp=m.slamPending;m.slamPe
    else if(walkable(this.world,m.x,m.y+sy))m.y+=sy;
  }
  updateProjectiles(dt){for(const pr of[...this.projectiles.values()]){pr.x+=pr.vx*dt;pr.y+=pr.vy*dt;pr.ttl-=dt;let dead=pr.ttl<=0;const owner=this.players.get(pr.owner);if(!dead){const obj=this.destructibleAt(pr.x,pr.y,pr.radius+6);if(obj&&owner){const oid=-obj.id-1;if(!pr.hitIds.has(oid)){pr.hitIds.add(oid);this.hitWorldObject(obj,pr.dmg,owner)}if(!pr.pierce)dead=true}if(!dead&&!walkable(this.world,pr.x,pr.y))dead=true}if(!dead){for(const m of this.monsters.values())if(!m.dead&&!pr.hitIds.has(m.id)&&dist(m,pr)<m.radius+pr.radius){pr.hitIds.add(m.id);if(owner)this.hitMonster(m,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}if(!dead&&owner){for(const p of this.players.values()){if(!this.canPvp(owner,p)||pr.hitIds.has(p.id)||dist(p,pr)>=PLAYER_HIT_RADIUS+pr.radius)continue;pr.hitIds.add(p.id);this.hitPlayer(p,owner,pr.dmg,1,true);if(!pr.pierce){dead=true;break}}}}if(dead)this.projectiles.delete(pr.id)}}
- updateRegen(dt,now){for(const p of this.players.values()){const maxCh=maxChOf(p.lv),maxHp=maxHpOf(p.lv);if(!p.dead){p.ch=Math.min(maxCh,p.ch+5.5*dt);if(now-p.lastCombatAt>6000)p.hp=Math.min(maxHp,p.hp+2.2*dt)}}}
+ updateRegen(dt,now){for(const p of this.players.values()){const maxCh=this.maxCh(p),maxHp=this.maxHp(p);if(!p.dead){p.ch=Math.min(maxCh,p.ch+5.5*dt);if(now-p.lastCombatAt>6000)p.hp=Math.min(maxHp,p.hp+2.2*dt)}}}
  worldObjectOccupied(obj){
    const cx=(obj.x+.5)*32,cy=(obj.y+.5)*32;
    for(const p of this.players.values())if(!p.dead&&Math.hypot(p.x-cx,p.y-cy)<42)return true;
@@ -481,7 +567,7 @@ if(m.boss&&m.slamPending&&now>=m.slamPending.at){const sp=m.slamPending;m.slamPe
      for(const e of this.players.values()){
        if(e.dead||Math.abs(e.x-h.x)>view||Math.abs(e.y-h.y)>view)continue;
        visible.add(e.id);
-       p.push([e.id,Math.round(e.x),Math.round(e.y),e.dir,Math.round(e.hp),e.lv]);
+       p.push([e.id,Math.round(e.x),Math.round(e.y),e.dir,Math.round(e.hp),e.lv,Math.round(this.maxHp(e))]);
        const lastMeta=known.get(e.id)||0;
        if(now-lastMeta>=metaRefresh){
          nf.push({k:'p',id:e.id,n:e.name,lv:e.lv,el:e.el,v:e.village,pal:e.pal});
@@ -510,8 +596,8 @@ if(m.boss&&m.slamPending&&now>=m.slamPending.at){const sp=m.slamPending;m.slamPe
      }
 
      h.socket.emit('snapshot',{t:now,p,m,pr,nf,you:{
-       hp:Math.round(h.hp),mh:maxHpOf(h.lv),ch:Math.round(h.ch),mc:maxChOf(h.lv),
-       xp:Math.round(h.xp),need:xpNeedOf(h.lv),lvl:h.lv,gold:h.gold,pot:h.pot,
+       hp:Math.round(h.hp),mh:this.maxHp(h),ch:Math.round(h.ch),mc:this.maxCh(h),
+       xp:Math.round(h.xp),need:xpNeedOf(h.lv),lvl:h.lv,gold:h.gold,pot:h.pot,atk:Math.round(this.attack(h)*10)/10,def:this.defense(h),crit:this.critChance(h),spd:this.moveSpeed(h),
        cds:h.cds.map(c=>Math.max(0,c-now)),mi:h.mi,mp:h.mp,dm:h.dead?1:0
      }});
    }
