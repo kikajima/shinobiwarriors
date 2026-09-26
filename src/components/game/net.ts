@@ -8,7 +8,7 @@
 
 import { io, type Socket } from 'socket.io-client'
 import type {
-  BountyCompleteMsg, BountyMsg, ChatMsg, DmgData, FxData, InventoryMsg, KillMsg, MapData, MissionMsg, RosterEnt,
+  BountyCompleteMsg, BountyMsg, ChatMsg, DmgData, EquipmentShopMsg, EquipmentStateMsg, FxData, InventoryMsg, KillMsg, MapData, MissionMsg, RosterEnt,
   ShopMsg, SnapshotData, WelcomeData,
 } from './types'
 
@@ -28,6 +28,8 @@ export type NetEvents = {
   bounty: (d: BountyMsg) => void
   bountyComplete: (d: BountyCompleteMsg) => void
   inventory: (d: InventoryMsg) => void
+  equipment: (d: EquipmentStateMsg) => void
+  equipmentShop: (d: EquipmentShopMsg) => void
   dead: (d: { by: string }) => void
   revived: (d: { x: number; y: number }) => void
   pJoin: (d: RosterEnt) => void
@@ -108,6 +110,22 @@ export class NetClient {
 
   inventoryUse(slot: number) {
     this.socket?.emit('inventoryUse', { slot })
+  }
+
+  equipItem(slot: number, target?: string) {
+    this.socket?.emit('equipItem', { slot, target })
+  }
+
+  unequipItem(slot: string) {
+    this.socket?.emit('unequipItem', { slot })
+  }
+
+  buyEquipment(itemId: string) {
+    this.socket?.emit('buyEquipment', { itemId })
+  }
+
+  forgeEquipment(slot: string) {
+    this.socket?.emit('forgeEquipment', { slot })
   }
 
   respawn() {
