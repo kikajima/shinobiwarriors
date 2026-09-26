@@ -1,6 +1,6 @@
 import { Game } from './src/game'
 import { BOUNTY, maxHpOf } from './src/data'
-import { zoneAt } from './src/world'
+import { VILLAGE_SPAWNS, zoneAt } from './src/world'
 
 const game = new Game({} as any)
 
@@ -69,6 +69,32 @@ hunter2.bot.nextBountyPlanAt = 0
 hunter2.bot.focus = 'pvp'
 if (!hunter2.bot.planBountyHunt(botNow + BOUNTY.trackCooldown + 1)) throw new Error('bot não planejou perseguição da bounty')
 if (hunter2.bot.purpose.kind !== 'bounty' || !hunter2.bot.route.length) throw new Error('bot não criou rota de bounty')
+
+// Se o alvo se refugiar na vila, a última pista do bot deve virar um ponto de
+// espera fora da safe zone. Durante o cooldown ele não pode perseguir a posição
+// interna do alvo e voltar a invadir/atacar de dentro da vila.
+const safeSpawn = VILLAGE_SPAWNS[hunted.village]
+hunted.x = safeSpawn.x
+hunted.y = safeSpawn.y
+hunted.dead = false
+hunter2.bounty.nextTrackAt = 0
+hunter2.bot.nextBountyPlanAt = 0
+hunter2.bot.route = []
+hunter2.bot.routeI = 0
+const safePlanNow = botNow + BOUNTY.trackCooldown * 2 + 5
+if (!hunter2.bot.planBountyHunt(safePlanNow)) throw new Error('bot não criou ponto de espera para alvo em safe zone')
+const safeLastKnown = hunter2.bot.bountyLastKnown
+if (!safeLastKnown || zoneAt(game.world, safeLastKnown.x, safeLastKnown.y).safe) {
+  throw new Error('bot guardou posição interna da vila como última pista da bounty')
+}
+hunter2.bot.route = []
+hunter2.bot.routeI = 0
+hunter2.bot.nextBountyPlanAt = 0
+if (!hunter2.bot.planBountyHunt(safePlanNow + 1)) throw new Error('bot perdeu a espera externa durante cooldown do tracking')
+const cooldownGoal = hunter2.bot.route[hunter2.bot.route.length - 1]
+if (!cooldownGoal || zoneAt(game.world, cooldownGoal.x, cooldownGoal.y).safe) {
+  throw new Error('cooldown do tracking levou o bot de volta para dentro da safe zone')
+}
 
 // Abate PvP paga recompensa base em XP+ryō e bônus do contrato.
 const victim: any = hunted
