@@ -72,6 +72,7 @@ io.on('connection', (socket) => {
   socket.on('interact', () => game.handleInteract(socket))
 
   socket.on('buyPotion', () => game.handleBuyPotion(socket))
+  socket.on('inventoryUse', (d?: { slot?: number }) => game.handleInventoryUse(socket, d))
 
   socket.on('bountyTrack', () => game.handleBountyTrack(socket))
   socket.on('bountyAbandon', () => game.handleBountyAbandon(socket))
