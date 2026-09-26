@@ -24,6 +24,13 @@ if (!game.canPvp(attacker, target)) {
   throw new Error('PvP deveria estar ativo fora da zona segura')
 }
 
+// A IA deve reconhecer outro bot de vila rival como alvo PvP sem precisar ser atacada primeiro.
+const autoTarget = attacker.bot?.findPvpTarget()
+if (!autoTarget || autoTarget.id !== target.id) {
+  throw new Error('bot não identificou rival próximo como alvo PvP autônomo')
+}
+
+
 const hpBefore = target.hp
 const hit = game.hitPlayer(target, attacker, 20, 1, false)
 if (!hit || target.hp >= hpBefore) {

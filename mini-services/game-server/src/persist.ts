@@ -9,45 +9,59 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import type { SavedPlayer } from './types'
+import type { SavedBotProfile, SavedPlayer } from './types'
 
-const PATH = `${import.meta.dir}/save.json`
-const TMP_PATH = `${PATH}.tmp`
+const PLAYER_PATH = `${import.meta.dir}/save.json`
+const BOT_PATH = `${import.meta.dir}/bots.json`
 
-export function loadSave(): Record<string, SavedPlayer> {
+function loadJson<T>(path: string, label: string): Record<string, T> {
   try {
-    if (!existsSync(PATH)) return {}
-
-    const parsed = JSON.parse(readFileSync(PATH, 'utf8'))
+    if (!existsSync(path)) return {}
+    const parsed = JSON.parse(readFileSync(path, 'utf8'))
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      console.warn('[persist] save.json inválido; iniciando save vazio.')
+      console.warn(`[persist] ${label} inválido; iniciando vazio.`)
       return {}
     }
-
-    return parsed as Record<string, SavedPlayer>
+    return parsed as Record<string, T>
   } catch (e) {
-    console.warn('[persist] falha ao carregar save.json:', e)
+    console.warn(`[persist] falha ao carregar ${label}:`, e)
     return {}
   }
 }
 
-export function saveReal(data: Record<string, SavedPlayer>) {
+function saveJson<T>(path: string, data: Record<string, T>, label: string) {
+  const tmpPath = `${path}.tmp`
   try {
-    writeFileSync(TMP_PATH, JSON.stringify(data))
-
+    writeFileSync(tmpPath, JSON.stringify(data))
     try {
-      renameSync(TMP_PATH, PATH)
+      renameSync(tmpPath, path)
     } catch (e: any) {
       if (e?.code !== 'EEXIST' && e?.code !== 'EPERM' && e?.code !== 'EACCES') throw e
-      if (existsSync(PATH)) unlinkSync(PATH)
-      renameSync(TMP_PATH, PATH)
+      if (existsSync(path)) unlinkSync(path)
+      renameSync(tmpPath, path)
     }
   } catch (e) {
-    console.warn('[persist] falha ao salvar save.json:', e)
+    console.warn(`[persist] falha ao salvar ${label}:`, e)
     try {
-      if (existsSync(TMP_PATH)) unlinkSync(TMP_PATH)
+      if (existsSync(tmpPath)) unlinkSync(tmpPath)
     } catch {
-      // melhor esforço: erro de limpeza não deve derrubar o servidor
+      // melhor esforço
     }
   }
+}
+
+export function loadSave(): Record<string, SavedPlayer> {
+  return loadJson<SavedPlayer>(PLAYER_PATH, 'save.json')
+}
+
+export function saveReal(data: Record<string, SavedPlayer>) {
+  saveJson(PLAYER_PATH, data, 'save.json')
+}
+
+export function loadBotSave(): Record<string, SavedBotProfile> {
+  return loadJson<SavedBotProfile>(BOT_PATH, 'bots.json')
+}
+
+export function saveBotReal(data: Record<string, SavedBotProfile>) {
+  saveJson(BOT_PATH, data, 'bots.json')
 }

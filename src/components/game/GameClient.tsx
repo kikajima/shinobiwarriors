@@ -154,12 +154,11 @@ export default function GameClient() {
     }
     const onChat = (d: any) => pushChat({ key: nextChatKey(), kind: 'chat', name: d.n, lv: d.lv, el: d.el, text: d.text })
     const onSys = (d: { t: string }) => pushChat({ key: nextChatKey(), kind: 'sys', text: d.t })
-    const onKill = (d: any) => pushChat({ key: nextChatKey(), kind: 'kill', name: d.k, text: d.pvp ? `PvP — ${d.v} (Nv${d.mlv})${d.xp > 0 ? ` +${d.xp} XP` : ' · sem XP repetido'}` : `${d.v} (Nv${d.mlv}) +${d.g} ryō` })
     const onMission = (d: any) => { if (d.done) { setMissionDone({ name: d.name, gold: d.gold, xp: d.xp }); audio.play('lvl') } }
     const onShop = (d: ShopMsg) => setShop(d.open ? d : null)
     const onDead = (d: { by: string }) => setDeathBy(d.by)
     const onRevived = (d: { x: number; y: number }) => { setDeathBy(null); engine.setSelfPos(d.x, d.y) }
-    net.on('chat', onChat); net.on('sys', onSys); net.on('kill', onKill); net.on('mission', onMission); net.on('shop', onShop); net.on('dead', onDead); net.on('revived', onRevived)
+    net.on('chat', onChat); net.on('sys', onSys); net.on('mission', onMission); net.on('shop', onShop); net.on('dead', onDead); net.on('revived', onRevived)
 
     const hudTimer = setInterval(() => {
       setHud(engine.buildHud())
@@ -170,7 +169,7 @@ export default function GameClient() {
 
     return () => {
       clearInterval(hudTimer); ro.disconnect(); engine.stop(); input.detach(); engineRef.current = null
-      for (const e of ['snapshot','fx','dmg','objDestroy','objRespawn','pJoin','pLeave','lvl','chat','sys','kill','mission','shop','dead','revived']) net.off(e)
+      for (const e of ['snapshot','fx','dmg','objDestroy','objRespawn','pJoin','pLeave','lvl','chat','sys','mission','shop','dead','revived']) net.off(e)
     }
   }, [phase, engineVersion, art])
 

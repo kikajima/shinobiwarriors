@@ -18,8 +18,7 @@ export function drawGame(e: GameEngine, now: number) {
   const ctx = e.ctx, canvas = e.canvas
   const dpr = canvas.width / Math.max(1, canvas.clientWidth)
   ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.imageSmoothingEnabled=false
-  const shakeX=e.shake>0?(Math.random()-.5)*e.shake:0, shakeY=e.shake>0?(Math.random()-.5)*e.shake:0
-  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.translate(canvas.clientWidth/2,canvas.clientHeight/2); ctx.scale(e.zoom,e.zoom); ctx.translate(-e.camX+shakeX,-e.camY+shakeY)
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.translate(canvas.clientWidth/2,canvas.clientHeight/2); ctx.scale(e.zoom,e.zoom); ctx.translate(-e.camX,-e.camY)
   const viewW=canvas.clientWidth/e.zoom, viewH=canvas.clientHeight/e.zoom
   const left=e.camX-viewW/2-TILE, top=e.camY-viewH/2-TILE, right=e.camX+viewW/2+TILE, bottom=e.camY+viewH/2+TILE
   const tx0=Math.max(0,Math.floor(left/TILE)),ty0=Math.max(0,Math.floor(top/TILE)),tx1=Math.min(e.map.w-1,Math.ceil(right/TILE)),ty1=Math.min(e.map.h-1,Math.ceil(bottom/TILE)),waterFrame=Math.floor(now/420)%2

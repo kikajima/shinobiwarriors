@@ -6,8 +6,8 @@
 
 import type { Game } from './game'
 import type { MonsterEnt, PlayerEnt } from './types'
-import { BOT_SPEED, CHAT, SKILLS } from './data'
-import { GRIND_ANCHORS, ZONE_ANCHORS, VILLAGE_SPAWNS, tileWalkable, walkable, type World } from './world'
+import { BOT_SPEED, CHAT, MISSIONS, SKILLS } from './data'
+import { GRIND_ANCHORS, ZONE_ANCHORS, VILLAGE_SPAWNS, tileWalkable, walkable, zoneAt, type World } from './world'
 
 const rnd = Math.random
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -102,6 +102,17 @@ const zoneForLevel = (lv: number): string => {
   return 'vale'
 }
 
+const missionZoneFor = (ent: PlayerEnt): string | null => {
+  const mission = MISSIONS[ent.mi]
+  if (!mission || mission.monster === 'any') return null
+  if (mission.monster === 'bandido') return 'campo'
+  if (mission.monster === 'sapo') return 'lago'
+  if (mission.monster === 'gennin') return 'floresta'
+  return 'vale'
+}
+
+const zoneForBot = (ent: PlayerEnt): string => missionZoneFor(ent) || zoneForLevel(ent.lv)
+
 const EL_PT: Record<string, string> = { fogo: 'fogo', agua: 'agua', raio: 'raio', vento: 'vento', terra: 'terra' }
 
 export class BotBrain {
@@ -114,6 +125,8 @@ export class BotBrain {
   targetId: number | null = null
   pvpTargetId: number | null = null
   pvpUntil = 0
+  nextPvpScanAt = 0
+  pvpAggression = 0.28 + rnd() * 0.52
   nextCastAt = 0
   wanderAt = 0
   wanderAng = 0
@@ -134,22 +147,27 @@ export class BotBrain {
   constructor(game: Game, ent: PlayerEnt) {
     this.game = game
     this.ent = ent
-    this.zone = zoneForLevel(ent.lv)
+    this.zone = zoneForBot(ent)
     const now = Date.now()
     this.nextChatAt = now + 15000 + rnd() * 90000
     this.routeTo(this.zone, true)
   }
 
   inCombat() {
-    return this.state === 'grind' && this.targetId != null
+    return (this.state === 'grind' && this.targetId != null) || this.pvpTargetId != null
   }
 
   onLevelUp() {
-    if (rnd() < 0.3) {
-      this.game.chatOut(this.ent, pick(CHAT.levelUp).replace('{lv}', String(this.ent.lv)))
-      const nz = zoneForLevel(this.ent.lv)
-      if (nz !== this.zone && rnd() < 0.7) this.zone = nz
-    }
+    if (rnd() < 0.3) this.game.chatOut(this.ent, pick(CHAT.levelUp).replace('{lv}', String(this.ent.lv)))
+    const nz = zoneForBot(this.ent)
+    if (nz !== this.zone) this.zone = nz
+  }
+
+  onMissionAdvance() {
+    this.targetId = null
+    const nz = zoneForBot(this.ent)
+    this.zone = nz
+    this.routeTo(nz, false)
   }
 
   onPvpHit(src: PlayerEnt) {
@@ -205,6 +223,21 @@ export class BotBrain {
       return
     }
     this.pvpTargetId = null
+
+    if (this.state !== 'rest' && now >= this.nextPvpScanAt && !zoneAt(this.game.world, ent.x, ent.y).safe) {
+      this.nextPvpScanAt = now + 1200 + rnd() * 1800
+      const candidate = this.findPvpTarget()
+      if (candidate) {
+        const d = dist(candidate, ent)
+        if (d < 150 || rnd() < this.pvpAggression) {
+          this.pvpTargetId = candidate.id
+          this.pvpUntil = now + 9000 + rnd() * 8000
+          this.targetId = null
+          this.thinkPvp(candidate, dt, now)
+          return
+        }
+      }
+    }
 
     switch (this.state) {
       case 'rest': this.thinkRest(dt, now); break
@@ -278,7 +311,8 @@ export class BotBrain {
     if (now >= this.grindUntil) {
       this.grindUntil = now + 240000 + rnd() * 300000
       if (rnd() < 0.35) {
-        this.zone = rnd() < 0.6 ? zoneForLevel(ent.lv) : pick(['campo', 'floresta', 'lago', 'vale'])
+        const missionZone = missionZoneFor(ent)
+        this.zone = missionZone && rnd() < 0.88 ? missionZone : (rnd() < 0.65 ? zoneForLevel(ent.lv) : pick(['campo', 'floresta', 'lago', 'vale']))
         this.routeTo(this.zone, false)
         return
       }
@@ -290,11 +324,17 @@ export class BotBrain {
     if (target && (target.dead || dist(target, ent) > 620)) { target = undefined; this.targetId = null }
     if (!target) {
       let best: MonsterEnt | undefined
-      let bestD = Infinity
+      let bestScore = Infinity
+      const mission = MISSIONS[ent.mi]
       for (const m of monsters.values()) {
-        if (m.dead || m.lv > ent.lv + 4) continue
+        if (m.dead) continue
+        const missionMatch = !mission || mission.monster === 'any' || mission.monster === m.t
+        if (!missionMatch && mission?.monster !== 'any') continue
+        if (m.lv > ent.lv + (missionMatch ? 7 : 4)) continue
         const d = dist(m, ent)
-        if (d < 460 && d < bestD) { best = m; bestD = d }
+        if (d >= 500) continue
+        const score = d + Math.max(0, m.lv - ent.lv) * 8
+        if (score < bestScore) { best = m; bestScore = score }
       }
       if (best) { target = best; this.targetId = best.id }
     }
@@ -361,35 +401,78 @@ export class BotBrain {
     }
   }
 
+  findPvpTarget(): PlayerEnt | null {
+    const ent = this.ent
+    if (zoneAt(this.game.world, ent.x, ent.y).safe) return null
+    const hpPct = ent.hp / Math.max(1, 90 + 28 * (ent.lv - 1))
+    if (hpPct < 0.38) return null
+
+    let best: PlayerEnt | null = null
+    let bestScore = Infinity
+    for (const p of this.game.players.values()) {
+      if (!this.game.canPvp(ent, p)) continue
+      const d = dist(p, ent)
+      if (d > 520) continue
+      const levelGap = p.lv - ent.lv
+      if (levelGap > 5 && hpPct < 0.82) continue
+      const targetHpPct = p.hp / Math.max(1, 90 + 28 * (p.lv - 1))
+      const score = d + Math.max(0, levelGap) * 34 + targetHpPct * 42 - Math.max(0, -levelGap) * 7
+      if (score < bestScore) {
+        best = p
+        bestScore = score
+      }
+    }
+    return best
+  }
+
   thinkPvp(target: PlayerEnt, dt: number, now: number) {
     const ent = this.ent
     const d = dist(target, ent)
-    if (target.dead || d > 620 || !this.game.canPvp(ent, target)) {
+    if (target.dead || d > 640 || !this.game.canPvp(ent, target)) {
       this.pvpTargetId = null
       return
     }
 
-    const hpPct = ent.hp / (90 + 28 * (ent.lv - 1))
-    if (hpPct < 0.30 && ent.pot > 0 && now >= ent.cds[5]) this.game.usePotion(ent)
+    const hpPct = ent.hp / Math.max(1, 90 + 28 * (ent.lv - 1))
+    const targetHpPct = target.hp / Math.max(1, 90 + 28 * (target.lv - 1))
+    const levelGap = target.lv - ent.lv
 
-    if (d > this.desiredRange) this.stepToward(target.x, target.y, BOT_SPEED * dt)
-    else if (d < 48 && rnd() < 0.28) {
+    if (hpPct < 0.38 && ent.pot > 0 && now >= ent.cds[5]) this.game.usePotion(ent)
+    if (hpPct < 0.20 || (levelGap >= 4 && hpPct < 0.55)) {
+      this.pvpTargetId = null
+      this.targetId = null
+      this.routeTo('vila', false)
+      return
+    }
+
+    const idealRange = targetHpPct < 0.28 ? 70 : this.desiredRange
+    if (d > idealRange) this.stepToward(target.x, target.y, BOT_SPEED * dt)
+    else if (d < 48 && hpPct < targetHpPct && rnd() < 0.38) {
       const ang = Math.atan2(ent.y - target.y, ent.x - target.x)
-      this.stepToward(ent.x + Math.cos(ang) * 60, ent.y + Math.sin(ang) * 60, BOT_SPEED * dt * 0.75)
+      this.stepToward(ent.x + Math.cos(ang) * 72, ent.y + Math.sin(ang) * 72, BOT_SPEED * dt * 0.82)
     }
 
     if (now < this.nextCastAt) return
-    this.nextCastAt = now + 450 + rnd() * 850
+    this.nextCastAt = now + 380 + rnd() * 720
     const skills = SKILLS[ent.el]
-    const ready: number[] = []
+    let chosen = -1
+    let chosenScore = -Infinity
     for (let i = 0; i < 4; i++) {
-      if (now < ent.cds[1 + i] || ent.ch < skills[i].ch || d > skills[i].range * 0.92) continue
-      ready.push(i)
+      const skill = skills[i]
+      if (now < ent.cds[1 + i] || ent.ch < skill.ch || d > skill.range * 0.94) continue
+      let score = skill.mult + rnd() * 0.35
+      if ((skill.archetype === 'proj' || skill.archetype === 'line') && d > 110) score += 0.9
+      if (skill.archetype === 'dash' && d > 70 && d < skill.range) score += 1.05
+      if (skill.archetype === 'aoe' && d < (skill.radius || 120) + 55) score += 1.15
+      if (targetHpPct < 0.25) score += skill.mult * 0.35
+      if (score > chosenScore) { chosen = i; chosenScore = score }
     }
-    if (ready.length && rnd() < 0.72) {
-      const chosen = pick(ready)
-      this.game.castSkill(ent, chosen, target.x, target.y)
-    } else if (d < 96 && now >= ent.cds[0]) {
+
+    const aimX = target.x + (rnd() - .5) * 18
+    const aimY = target.y + (rnd() - .5) * 18
+    if (chosen >= 0 && rnd() < 0.88) {
+      this.game.castSkill(ent, chosen, aimX, aimY)
+    } else if (d < 100 && now >= ent.cds[0]) {
       this.game.basicAttack(ent, target.x, target.y)
     }
   }

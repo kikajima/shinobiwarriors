@@ -97,3 +97,16 @@ export interface SavedPlayer {
   gold: number
   pot: number
 }
+
+
+export interface SavedBotProfile {
+  el: ElementId
+  village: VillageId
+  pal: number
+  lv: number
+  xp: number
+  gold: number
+  pot: number
+  mi: number
+  mp: number
+}

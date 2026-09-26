@@ -1,7 +1,7 @@
 import { BASIC, CRIT_CHANCE, CRIT_MULT, MAX_LEVEL, MONSTERS, MISSIONS, BOT_NAMES, POTION, PLAYER_SPEED, SKILLS, TIPS, VILLAGE_IDS, VILLAGE_NAMES, maxChOf, maxHpOf, atkOf, xpNeedOf, } from './data';
 import { DESTRUCTIBLE_HP, DESTRUCTIBLE_REGEN_MS, destroyWorldObject, restoreWorldObject, genWorld, walkable, zoneAt, VILLAGE_SPAWNS } from './world';
 import { BotBrain, botGreetHuman, scheduleBotReplies, BOT_TARGET } from './bots';
-import { loadSave, saveReal } from './persist';
+import { loadBotSave, loadSave, saveBotReal, saveReal } from './persist';
 const EL_LIST = ['fogo', 'agua', 'raio', 'vento', 'terra'];
 const BOT_NAMES_POOL = BOT_NAMES;
 const rnd = Math.random;
@@ -12,7 +12,7 @@ const PVP_DAMAGE_SCALE = 0.65;
 const PLAYER_HIT_RADIUS = 14;
 const PVP_REWARD_COOLDOWN = 3 * 60 * 1000;
 export class Game {
- constructor(io){this.world=genWorld();this.players=new Map();this.monsters=new Map();this.projectiles=new Map();this.pvpRewardAt=new Map();this.destroyedWorld=new Map();this.lastWorldRegen=0;this.nextId=1;this.saved={};this.tickCount=0;this.lastSave=0;this.lastTip=Date.now()+60000;this.lastLifecycle=Date.now()+20000;this.io=io;this.saved=loadSave();this.spawnMonsters();this.spawnInitialBots()}
+ constructor(io){this.world=genWorld();this.players=new Map();this.monsters=new Map();this.projectiles=new Map();this.pvpRewardAt=new Map();this.destroyedWorld=new Map();this.botProfiles=new Map(Object.entries(loadBotSave()));this.lastWorldRegen=0;this.nextId=1;this.saved={};this.tickCount=0;this.lastSave=0;this.lastTip=Date.now()+60000;this.lastLifecycle=Date.now()+20000;this.io=io;this.saved=loadSave();this.spawnMonsters();this.spawnInitialBots()}
  onlineCount(){return this.players.size}
  canStand(x,y){return walkable(this.world,x-7,y-2)&&walkable(this.world,x+7,y-2)&&walkable(this.world,x-7,y+11)&&walkable(this.world,x+7,y+11)&&walkable(this.world,x,y+5)}
  findWalkableNear(x,y,radius=100){
@@ -35,11 +35,39 @@ export class Game {
    const used=new Set([...this.players.values()].map(p=>p.name.toLowerCase())),pool=[];
    for(const n of BOT_NAMES_POOL)if(!used.has(n.toLowerCase()))pool.push(n);
    if(!pool.length)return null;
-   const name=pool[Math.floor(rnd()*pool.length)],el=EL_LIST[Math.floor(rnd()*5)],lv=45+Math.floor(rnd()*11);
-   const botIndex=[...this.players.values()].filter(p=>p.kind==='bot').length,village=VILLAGE_IDS[botIndex%VILLAGE_IDS.length];
+
+   const returning=pool.filter(n=>this.botProfiles.has(n.toLowerCase()));
+   const name=returning.length&&rnd()<.7
+     ? returning[Math.floor(rnd()*returning.length)]
+     : pool[Math.floor(rnd()*pool.length)];
+   const key=name.toLowerCase(),profile=this.botProfiles.get(key);
+
+   let village=profile?.village;
+   if(!village||!VILLAGE_IDS.includes(village)){
+     const counts=Object.fromEntries(VILLAGE_IDS.map(v=>[v,0]));
+     for(const p of this.players.values())if(p.kind==='bot')counts[p.village]=(counts[p.village]||0)+1;
+     village=VILLAGE_IDS.reduce((best,v)=>counts[v]<counts[best]?v:best,VILLAGE_IDS[0]);
+   }
+
+   const el=profile?.el&&EL_LIST.includes(profile.el)?profile.el:EL_LIST[Math.floor(rnd()*EL_LIST.length)];
+   const lv=Math.max(1,Math.min(MAX_LEVEL,Number(profile?.lv)||1));
+   const xp=Math.max(0,Number(profile?.xp)||0);
    const home=VILLAGE_SPAWNS[village],spawn=this.findWalkableNear(home.x,home.y,100);
-   const ent={id:this.nextId++,kind:'bot',name,el,village,pal:Math.floor(rnd()*64),lv,xp:Math.floor(rnd()*xpNeedOf(lv)),hp:maxHpOf(lv),ch:maxChOf(lv),gold:50+Math.floor(rnd()*400),pot:3+Math.floor(rnd()*3),x:spawn.x,y:spawn.y,dir:0,dead:false,known:new Map(),lastMoveAt:Date.now(),lastCombatAt:0,cds:[0,0,0,0,0,0],mi:0,mp:0,lastChatAt:0,lastHealAt:0};
+   const ent={
+     id:this.nextId++,kind:'bot',name,el,village,pal:Number.isInteger(profile?.pal)?profile.pal:Math.floor(rnd()*64),
+     lv,xp,hp:maxHpOf(lv),ch:maxChOf(lv),gold:Math.max(0,Number(profile?.gold)||80),
+     pot:Math.max(0,Math.min(POTION.max,Number(profile?.pot)||POTION.start)),
+     x:spawn.x,y:spawn.y,dir:0,dead:false,known:new Map(),lastMoveAt:Date.now(),lastCombatAt:0,
+     cds:[0,0,0,0,0,0],mi:Math.max(0,Math.min(MISSIONS.length-1,Number(profile?.mi)||0)),
+     mp:Math.max(0,Number(profile?.mp)||0),lastChatAt:0,lastHealAt:0
+   };
    ent.bot=new BotBrain(this,ent);this.players.set(ent.id,ent);return ent;
+ }
+ rememberBot(ent){
+   if(!ent||ent.kind!=='bot')return;
+   this.botProfiles.set(ent.name.toLowerCase(),{
+     el:ent.el,village:ent.village,pal:ent.pal,lv:ent.lv,xp:ent.xp,gold:ent.gold,pot:ent.pot,mi:ent.mi,mp:ent.mp
+   });
  }
  sanitizeName(raw){let n=(raw||'').normalize('NFC').replace(/[\u0000-\u001f\u007f]/g,'').trim().replace(/\s+/g,' ');return n.replace(/[^A-Za-z0-9À-ÿ_\-\. ]/g,'').slice(0,14)}
  addHuman(socket,rawName,el,requestedVillage){
@@ -134,8 +162,6 @@ export class Game {
    if(xp>0)this.gainXp(killer,xp);
    this.emitNear(victim.x,victim.y,1000,'fx',{k:'pdeath',x:victim.x,y:victim.y});
    this.broadcast('kill',{k:killer.name,klv:killer.lv,v:victim.name,mlv:victim.lv,g:0,xp,pvp:1});
-   const reward=xp>0?` +${xp} XP`:' (sem XP: abate repetido)';
-   this.sys(`${killer.name} [${VILLAGE_NAMES[killer.village]}] derrotou ${victim.name} [${VILLAGE_NAMES[victim.village]}] em PvP!${reward}`);
    if(victim.kind==='human')victim.socket?.emit('dead',{by:killer.name});
    else victim.bot?.onDeath(killer);
  }
@@ -203,16 +229,16 @@ export class Game {
    this.emitNear(m.x,m.y,900,'dmg',{x:m.x,y:m.y-26,v:dmg,c:crit?1:0,tid:m.id});
    if(m.hp<=0)this.killMonster(m,attacker);
  }
- killMonster(m,killer){m.hp=0;m.dead=true;m.aggroId=null;m.slamPending=null;m.respawnAt=Date.now()+m.respawnMs;this.forgetEntity(m.id);this.emitNear(m.x,m.y,1000,'fx',{k:'death',x:m.x,y:m.y,boss:m.boss?1:0});const gold=m.goldMin+Math.floor(rnd()*(m.goldMax-m.goldMin+1));killer.gold+=gold;this.broadcast('kill',{k:killer.name,klv:killer.lv,v:m.name,mlv:m.lv,g:gold,xp:m.xp});this.gainXp(killer,m.xp);if(killer.kind==='human')this.progressMission(killer,m.t);if(m.boss)this.sys(`${killer.name} derrotou o Zetsu Ancião! Um novo irá surgir no Vale do Fim...`)}
- gainXp(ent,xp){if(ent.lv>=MAX_LEVEL)return;ent.xp+=xp;let leveled=false;while(ent.lv<MAX_LEVEL&&ent.xp>=xpNeedOf(ent.lv)){ent.xp-=xpNeedOf(ent.lv);ent.lv++;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);leveled=true}if(leveled){this.emitNear(ent.x,ent.y,1000,'fx',{k:'lvl',x:ent.x,y:ent.y});this.broadcast('lvl',{id:ent.id,lv:ent.lv,n:ent.name});this.sys(`${ent.name} alcançou o nível ${ent.lv}!`);if(ent.bot)ent.bot.onLevelUp()}}
- progressMission(ent,monsterType){const mi=MISSIONS[ent.mi];if(!mi||(mi.monster!=='any'&&mi.monster!==monsterType))return;ent.mp++;if(ent.mp>=mi.need){ent.gold+=mi.gold;this.gainXp(ent,mi.xp);ent.socket?.emit('mission',{i:ent.mi,done:true,name:mi.name,gold:mi.gold,xp:mi.xp});this.sys(`${ent.name} completou a missão "${mi.name}"!`);if(mi.repeat)ent.mp=0;else{ent.mi=Math.min(ent.mi+1,MISSIONS.length-1);ent.mp=0}const next=MISSIONS[ent.mi];ent.socket?.emit('mission',{i:ent.mi,name:next.name,monster:next.monster,need:next.need,prog:0})}else ent.socket?.emit('mission',{i:ent.mi,prog:ent.mp,need:mi.need,name:mi.name})}
+ killMonster(m,killer){m.hp=0;m.dead=true;m.aggroId=null;m.slamPending=null;m.respawnAt=Date.now()+m.respawnMs;this.forgetEntity(m.id);this.emitNear(m.x,m.y,1000,'fx',{k:'death',x:m.x,y:m.y,boss:m.boss?1:0});const gold=m.goldMin+Math.floor(rnd()*(m.goldMax-m.goldMin+1));killer.gold+=gold;this.broadcast('kill',{k:killer.name,klv:killer.lv,v:m.name,mlv:m.lv,g:gold,xp:m.xp});this.gainXp(killer,m.xp);this.progressMission(killer,m.t)}
+ gainXp(ent,xp){if(ent.lv>=MAX_LEVEL)return;ent.xp+=xp;let leveled=false;while(ent.lv<MAX_LEVEL&&ent.xp>=xpNeedOf(ent.lv)){ent.xp-=xpNeedOf(ent.lv);ent.lv++;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);leveled=true}if(leveled){this.emitNear(ent.x,ent.y,1000,'fx',{k:'lvl',x:ent.x,y:ent.y});this.broadcast('lvl',{id:ent.id,lv:ent.lv,n:ent.name});if(ent.kind==='human')this.sys(`${ent.name} alcançou o nível ${ent.lv}!`);if(ent.bot)ent.bot.onLevelUp()}}
+ progressMission(ent,monsterType){const mi=MISSIONS[ent.mi];if(!mi||(mi.monster!=='any'&&mi.monster!==monsterType))return;ent.mp++;if(ent.mp>=mi.need){ent.gold+=mi.gold;this.gainXp(ent,mi.xp);ent.socket?.emit('mission',{i:ent.mi,done:true,name:mi.name,gold:mi.gold,xp:mi.xp});if(ent.kind==='human')this.sys(`${ent.name} completou a missão "${mi.name}"!`);if(mi.repeat)ent.mp=0;else{ent.mi=Math.min(ent.mi+1,MISSIONS.length-1);ent.mp=0}const next=MISSIONS[ent.mi];ent.socket?.emit('mission',{i:ent.mi,name:next.name,monster:next.monster,need:next.need,prog:0});ent.bot?.onMissionAdvance()}else ent.socket?.emit('mission',{i:ent.mi,prog:ent.mp,need:mi.need,name:mi.name})}
  usePotion(ent){if(ent.dead||ent.pot<=0)return false;const now=Date.now();if(now<ent.cds[5])return false;ent.cds[5]=now+POTION.cd;ent.pot--;const heal=Math.round(maxHpOf(ent.lv)*POTION.healPct);ent.hp=Math.min(maxHpOf(ent.lv),ent.hp+heal);ent.lastCombatAt=now;this.emitNear(ent.x,ent.y,800,'dmg',{x:ent.x,y:ent.y-26,v:heal,h:1});this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});return true}
- damagePlayer(ent,dmg,src){if(ent.dead||zoneAt(this.world,ent.x,ent.y).safe)return;if(ent.el==='terra')dmg*=.84;ent.hp-=Math.round(dmg);ent.lastCombatAt=Date.now();this.emitNear(ent.x,ent.y,900,'dmg',{tid:ent.id,x:ent.x,y:ent.y-30,v:Math.round(dmg),c:0,tp:1});if(ent.hp<=0){ent.hp=0;ent.dead=true;this.forgetEntity(ent.id);this.emitNear(ent.x,ent.y,1000,'fx',{k:'pdeath',x:ent.x,y:ent.y});this.sys(`${ent.name} foi derrotado por ${src.name}!`);if(ent.kind==='human')ent.socket?.emit('dead',{by:src.name});else ent.bot?.onDeath(src)}}
+ damagePlayer(ent,dmg,src){if(ent.dead||zoneAt(this.world,ent.x,ent.y).safe)return;if(ent.el==='terra')dmg*=.84;ent.hp-=Math.round(dmg);ent.lastCombatAt=Date.now();this.emitNear(ent.x,ent.y,900,'dmg',{tid:ent.id,x:ent.x,y:ent.y-30,v:Math.round(dmg),c:0,tp:1});if(ent.hp<=0){ent.hp=0;ent.dead=true;this.forgetEntity(ent.id);this.emitNear(ent.x,ent.y,1000,'fx',{k:'pdeath',x:ent.x,y:ent.y});if(ent.kind==='human')ent.socket?.emit('dead',{by:src.name});else ent.bot?.onDeath(src)}}
  respawnPlayer(ent){if(!ent.dead)return;ent.dead=false;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);const home=VILLAGE_SPAWNS[ent.village]||VILLAGE_SPAWNS.folha,spawn=this.findWalkableNear(home.x,home.y,60);ent.x=spawn.x;ent.y=spawn.y;ent.cds=[0,0,0,0,0,0];if(ent.kind==='human')ent.socket?.emit('revived',{x:ent.x,y:ent.y})}
  handleChat(socket,msg){const ent=this.entOf(socket);if(!ent)return;const now=Date.now();if(now-ent.lastChatAt<1200)return;ent.lastChatAt=now;const text=String(msg?.text||'').slice(0,120).trim();if(!text)return;this.chatOut(ent,text);scheduleBotReplies(this,ent,text)}
  handleInteract(socket){const ent=this.entOf(socket);if(!ent||ent.dead)return;const now=Date.now(),f=this.world.fountains.find(q=>dist(ent,q)<100);if(f){if(now-ent.lastHealAt>4000){ent.lastHealAt=now;ent.hp=maxHpOf(ent.lv);ent.ch=maxChOf(ent.lv);this.emitNear(ent.x,ent.y,800,'fx',{k:'heal',x:ent.x,y:ent.y});socket.emit('sys',{t:'Você recuperou suas forças na fonte da vila.'})}return}const shop=this.world.shops.find(q=>dist(ent,q)<105);if(shop)socket.emit('shop',{open:true,name:shop.name,gold:ent.gold,pot:ent.pot,price:POTION.price})}
  handleBuyPotion(socket){const ent=this.entOf(socket);if(!ent)return;const shop=this.world.shops.find(q=>dist(ent,q)<145);if(!shop)return;if(ent.pot>=POTION.max){socket.emit('sys',{t:'Você já está carregando poções demais.'});return}if(ent.gold<POTION.price){socket.emit('sys',{t:'Ryō insuficiente! Cace monstros para ganhar mais.'});return}ent.gold-=POTION.price;ent.pot++;socket.emit('shop',{open:true,name:shop.name,gold:ent.gold,pot:ent.pot,price:POTION.price});socket.emit('sys',{t:'Poção comprada! Aperte Q para usar em combate.'})}
- tick(){const dt=.05,now=Date.now();this.tickCount++;this.updateMonsters(dt,now);this.updateProjectiles(dt);this.updateRegen(dt,now);this.updateWorldRespawns(now);for(const p of this.players.values())if(p.bot)p.bot.think(dt,now);this.updateBotLifecycle(now);this.sendSnapshots(now);if(now>this.lastTip){this.lastTip=now+90000+rnd()*60000;this.sys(TIPS[Math.floor(rnd()*TIPS.length)])}if(now-this.lastSave>30000){this.lastSave=now;for(const p of this.players.values())if(p.kind==='human')this.saved[p.name.toLowerCase()]={el:p.el,village:p.village,lv:p.lv,xp:p.xp,gold:p.gold,pot:p.pot};saveReal(this.saved)}}
+ tick(){const dt=.05,now=Date.now();this.tickCount++;this.updateMonsters(dt,now);this.updateProjectiles(dt);this.updateRegen(dt,now);this.updateWorldRespawns(now);for(const p of this.players.values())if(p.bot)p.bot.think(dt,now);this.updateBotLifecycle(now);this.sendSnapshots(now);if(now>this.lastTip){this.lastTip=now+90000+rnd()*60000;this.sys(TIPS[Math.floor(rnd()*TIPS.length)])}if(now-this.lastSave>30000){this.lastSave=now;for(const p of this.players.values()){if(p.kind==='human')this.saved[p.name.toLowerCase()]={el:p.el,village:p.village,lv:p.lv,xp:p.xp,gold:p.gold,pot:p.pot};else if(p.kind==='bot')this.rememberBot(p)}saveReal(this.saved);saveBotReal(Object.fromEntries(this.botProfiles))}}
  updateMonsters(dt,now){for(const m of this.monsters.values()){if(m.dead){if(now>=m.respawnAt){m.dead=false;m.hp=m.maxHp;m.aggroId=null;m.burnUntil=0;m.burnNextAt=0;m.burnDamage=0;m.burnOwnerId=null;m.slowUntil=0;m.stunUntil=0;m.x=m.spawnX+(rnd()-.5)*60;m.y=m.spawnY+(rnd()-.5)*60;if(!walkable(this.world,m.x,m.y)){m.x=m.spawnX;m.y=m.spawnY}if(m.boss)this.sys('O Zetsu Ancião surgiu no Vale do Fim!')}continue}
 if(m.burnUntil>now&&m.burnOwnerId!=null&&now>=m.burnNextAt){
   m.burnNextAt=now+650;
@@ -263,7 +289,7 @@ if(m.boss&&m.slamPending&&now>=m.slamPending.at){const sp=m.slamPending;m.slamPe
      }
    }
  }
- updateBotLifecycle(now){if(now<this.lastLifecycle)return;this.lastLifecycle=now+25000;const bots=[...this.players.values()].filter(p=>p.kind==='bot');if(bots.length>BOT_TARGET-4&&rnd()<.55){const b=bots[Math.floor(rnd()*bots.length)];if(b&&!b.bot?.inCombat()){if(rnd()<.45)b.bot?.sayFarewell();this.players.delete(b.id);this.forgetEntity(b.id);this.broadcast('pLeave',{id:b.id});this.sys(`${b.name} saiu do jogo.`)}}else if(bots.length<BOT_TARGET+3&&rnd()<.6){const b=this.addBot();if(b){this.broadcast('pJoin',{id:b.id,n:b.name,lv:b.lv,el:b.el,v:b.village,pal:b.pal});this.sys(`${b.name} entrou no jogo.`);if(rnd()<.5)b.bot?.sayJoin()}}}
+ updateBotLifecycle(now){if(now<this.lastLifecycle)return;this.lastLifecycle=now+25000;const bots=[...this.players.values()].filter(p=>p.kind==='bot');if(bots.length>BOT_TARGET-4&&rnd()<.55){const b=bots[Math.floor(rnd()*bots.length)];if(b&&!b.bot?.inCombat()){if(rnd()<.45)b.bot?.sayFarewell();this.rememberBot(b);this.players.delete(b.id);this.forgetEntity(b.id);this.broadcast('pLeave',{id:b.id});this.sys(`${b.name} saiu do jogo.`)}}else if(bots.length<BOT_TARGET+3&&rnd()<.6){const b=this.addBot();if(b){this.broadcast('pJoin',{id:b.id,n:b.name,lv:b.lv,el:b.el,v:b.village,pal:b.pal});this.sys(`${b.name} entrou no jogo.`);if(rnd()<.5)b.bot?.sayJoin()}}}
  sendSnapshots(now){
    const view=1080,metaRefresh=4000;
    for(const h of this.players.values()){
