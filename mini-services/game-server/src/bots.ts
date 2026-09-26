@@ -17,7 +17,7 @@ const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
 export type BotFocus = 'mission' | 'grind' | 'explore' | 'pvp' | 'social'
 export const BOT_FOCUS_TYPES: BotFocus[] = ['mission', 'grind', 'explore', 'pvp', 'social']
 
-export type BotPurposeKind = 'mission' | 'hunt' | 'explore' | 'pvp' | 'bounty' | 'recover' | 'social' | 'heal' | 'shop' | 'prepare'
+export type BotPurposeKind = 'mission' | 'hunt' | 'explore' | 'pvp' | 'bounty' | 'recover' | 'social' | 'heal' | 'shop' | 'gear' | 'prepare'
 export interface BotPurpose {
   kind: BotPurposeKind
   label: string
@@ -218,7 +218,7 @@ export class BotBrain {
   lastProgressAt = 0
   lastProgressPos = { x: 0, y: 0 }
   nextPurposeCheckAt = 0
-  villageTask: 'heal' | 'shop' | 'bounty' | 'social' | 'depart' = 'heal'
+  villageTask: 'heal' | 'shop' | 'gear' | 'bounty' | 'social' | 'depart' = 'heal'
   villageRoute: { x: number; y: number }[] = []
   villageRouteI = 0
   villageTaskUntil = 0
@@ -258,8 +258,8 @@ export class BotBrain {
   }
 
   needsVillagePrep(): boolean {
-    const hpPct = this.ent.hp / Math.max(1, maxHpOf(this.ent.lv))
-    const chPct = this.ent.ch / Math.max(1, maxChOf(this.ent.lv))
+    const hpPct = this.ent.hp / Math.max(1, this.game.maxHp(this.ent))
+    const chPct = this.ent.ch / Math.max(1, this.game.maxCh(this.ent))
     const needsPotions = this.ent.pot < this.desiredPotionStock() && this.ent.gold >= POTION.price
     return hpPct < .68 || chPct < .42 || needsPotions
   }
@@ -267,7 +267,7 @@ export class BotBrain {
   chooseFocus(now: number, force = false): BotFocus {
     if (!force && now < this.focusUntil) return this.focus
     const ent = this.ent
-    const hpPct = ent.hp / Math.max(1, maxHpOf(ent.lv))
+    const hpPct = ent.hp / Math.max(1, this.game.maxHp(ent))
     const mission = MISSIONS[ent.mi]
     const missionRemaining = mission ? Math.max(0, mission.need - ent.mp) / Math.max(1, mission.need) : 0
     const ready = this.missionReady()
@@ -433,7 +433,7 @@ export class BotBrain {
       if (!this.villageRoute.length) return false
     }
     const wp = this.villageRoute[this.villageRouteI]
-    this.stepToward(wp.x, wp.y, Math.min(BOT_SPEED * .72, 105) * dt)
+    this.stepToward(wp.x, wp.y, Math.min(this.game.moveSpeed(ent) * .72, 105) * dt)
     if (dist(ent, wp) < 22) this.villageRouteI++
     return this.villageRouteI >= this.villageRoute.length
   }
@@ -690,12 +690,13 @@ export class BotBrain {
   thinkRest(dt: number, now: number) {
     const ent = this.ent
     const fountain = this.game.world.fountains.find(f => f.village === ent.village)
-    const shops = this.game.world.shops.filter(q => q.village === ent.village)
+    const shops = this.game.world.shops.filter(q => q.village === ent.village && q.kind === 'supply')
+    const gearShop = this.game.world.shops.find(q => q.village === ent.village && q.kind === 'equipment')
     const bountyNpc = this.game.world.bountyNpcs.find(q => q.village === ent.village)
 
     if (this.villageTask === 'heal') {
-      const hpFull = ent.hp >= maxHpOf(ent.lv) * .98
-      const chFull = ent.ch >= maxChOf(ent.lv) * .98
+      const hpFull = ent.hp >= this.game.maxHp(ent) * .98
+      const chFull = ent.ch >= this.game.maxCh(ent) * .98
       if (!fountain || (hpFull && chFull)) {
         this.villageTask = 'shop'
         this.clearVillageRoute()
@@ -714,7 +715,7 @@ export class BotBrain {
       const desired = this.desiredPotionStock()
       const canBuy = ent.pot < desired && ent.gold >= POTION.price
       if (!canBuy || !shops.length) {
-        this.villageTask = this.shouldTakeBounty() && bountyNpc ? 'bounty' : 'social'
+        this.villageTask = gearShop ? 'gear' : this.shouldTakeBounty() && bountyNpc ? 'bounty' : 'social'
         this.villageTaskUntil = now + 1800 + rnd() * (1800 + this.personality.social * 3500)
         this.clearVillageRoute()
       } else {
@@ -722,7 +723,7 @@ export class BotBrain {
         if (dist(ent, shop) < 140) {
           this.setPurpose('shop', `comprando suprimentos em ${shop.name}`)
           this.game.botBuyPotions(ent, desired, this.goldReserve())
-          this.villageTask = this.shouldTakeBounty() && bountyNpc ? 'bounty' : 'social'
+          this.villageTask = gearShop ? 'gear' : this.shouldTakeBounty() && bountyNpc ? 'bounty' : 'social'
           this.villageTaskUntil = now + 1800 + rnd() * (1800 + this.personality.social * 3500)
           this.clearVillageRoute()
         } else {
@@ -730,6 +731,22 @@ export class BotBrain {
           this.followVillageRoute(shop.x, shop.y, dt)
           return
         }
+      }
+    }
+
+    if (this.villageTask === 'gear') {
+      if (!gearShop) {
+        this.villageTask = this.shouldTakeBounty() && bountyNpc ? 'bounty' : 'social'
+      } else if (dist(ent, gearShop) < 140) {
+        this.setPurpose('gear', 'comparando equipamentos e usando a forja')
+        this.game.botImproveEquipment(ent, this.goldReserve())
+        this.villageTask = this.shouldTakeBounty() && bountyNpc ? 'bounty' : 'social'
+        this.villageTaskUntil = now + 1200 + rnd() * 2600
+        this.clearVillageRoute()
+      } else {
+        this.setPurpose('gear', 'indo ao arsenal melhorar equipamentos')
+        this.followVillageRoute(gearShop.x, gearShop.y, dt)
+        return
       }
     }
 
@@ -825,7 +842,7 @@ export class BotBrain {
       return
     }
 
-    this.stepToward(wp.x, wp.y, BOT_SPEED * dt)
+    this.stepToward(wp.x, wp.y, this.game.moveSpeed(ent) * dt)
     if (dist(ent, wp) < 24) this.routeI++
 
     // Recuperação de rota: mede progresso real, não animação/intenção.
@@ -935,7 +952,7 @@ export class BotBrain {
         const anchor = { x: (anchorTile.x + .5) * TILE, y: (anchorTile.y + .5) * TILE }
         const d = dist(ent, anchor)
         if (d > 120) {
-          this.stepToward(anchor.x, anchor.y, BOT_SPEED * dt)
+          this.stepToward(anchor.x, anchor.y, this.game.moveSpeed(ent) * dt)
         } else if (rnd() < .22 + this.personality.explore * .22) {
           const wx = ent.x + Math.cos(this.wanderAng) * 70
           const wy = ent.y + Math.sin(this.wanderAng) * 70
@@ -960,10 +977,10 @@ export class BotBrain {
       return
     }
 
-    if (d > this.desiredRange) this.stepToward(target.x, target.y, BOT_SPEED * dt)
+    if (d > this.desiredRange) this.stepToward(target.x, target.y, this.game.moveSpeed(ent) * dt)
     else if (d < 46 && rnd() < 0.3) {
       const ang = Math.atan2(ent.y - target.y, ent.x - target.x)
-      this.stepToward(ent.x + Math.cos(ang) * 60, ent.y + Math.sin(ang) * 60, BOT_SPEED * dt * 0.7)
+      this.stepToward(ent.x + Math.cos(ang) * 60, ent.y + Math.sin(ang) * 60, this.game.moveSpeed(ent) * dt * 0.7)
     }
 
     if (now >= this.nextCastAt) {
@@ -1050,10 +1067,10 @@ export class BotBrain {
     }
 
     const idealRange = targetHpPct < 0.28 ? 70 : this.desiredRange
-    if (d > idealRange) this.stepToward(target.x, target.y, BOT_SPEED * dt)
+    if (d > idealRange) this.stepToward(target.x, target.y, this.game.moveSpeed(ent) * dt)
     else if (d < 48 && hpPct < targetHpPct && rnd() < 0.38) {
       const ang = Math.atan2(ent.y - target.y, ent.x - target.x)
-      this.stepToward(ent.x + Math.cos(ang) * 72, ent.y + Math.sin(ang) * 72, BOT_SPEED * dt * 0.82)
+      this.stepToward(ent.x + Math.cos(ang) * 72, ent.y + Math.sin(ang) * 72, this.game.moveSpeed(ent) * dt * 0.82)
     }
 
     if (now < this.nextCastAt) return
