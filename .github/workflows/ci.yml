@@ -65,6 +65,10 @@ jobs:
         working-directory: mini-services/game-server
         run: bun bot-movement-test.ts
 
+      - name: Validate bot village exits and safe-zone combat
+        working-directory: mini-services/game-server
+        run: bun bot-safe-zone-test.ts
+
       - name: Validate bot economy and progression loop
         working-directory: mini-services/game-server
         run: bun bot-economy-test.ts

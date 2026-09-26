@@ -7,7 +7,7 @@
 import type { Game } from './game'
 import type { MonsterEnt, PlayerEnt } from './types'
 import { BOT_SPEED, CHAT, MISSIONS, MONSTERS, POTION, SKILLS, maxChOf, maxHpOf } from './data'
-import { GRIND_ANCHORS, ZONE_ANCHORS, VILLAGE_SPAWNS, tileWalkable, walkable, zoneAt, type World } from './world'
+import { GRIND_ANCHORS, ZONE_ANCHORS, VILLAGE_EXITS, VILLAGE_SPAWNS, tileWalkable, walkable, zoneAt, type World } from './world'
 
 const rnd = Math.random
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -387,7 +387,30 @@ export class BotBrain {
 
   routeToPoint(targetX: number, targetY: number): boolean {
     const ent = this.ent
-    const route = findBotPath(this.game.world, ent.x, ent.y, targetX, targetY)
+    const world = this.game.world
+    const startsSafe = !!zoneAt(world, ent.x, ent.y).safe
+    const targetSafe = !!zoneAt(world, targetX, targetY).safe
+
+    let route: { x: number; y: number }[] = []
+    if (startsSafe && !targetSafe) {
+      const exits = VILLAGE_EXITS[ent.village] || []
+      const exit = [...exits].sort((a,b)=>dist(a,{x:targetX,y:targetY})-dist(b,{x:targetX,y:targetY}))[0]
+      if (!exit) return false
+
+      const toExit = findBotPath(world, ent.x, ent.y, exit.x, exit.y)
+      if (!toExit.length) {
+        this.route = []
+        this.routeI = 0
+        this.routeGoal = null
+        this.routeFailures++
+        return false
+      }
+      const fromExit = findBotPath(world, exit.x, exit.y, targetX, targetY)
+      route = [...toExit, ...fromExit]
+    } else {
+      route = findBotPath(world, ent.x, ent.y, targetX, targetY)
+    }
+
     if (!route.length) {
       this.route = []
       this.routeI = 0
@@ -653,7 +676,8 @@ export class BotBrain {
     // sem insistir em terminar waypoints antigos.
     if (this.purpose.targetId != null) {
       const monster = this.game.monsters.get(this.purpose.targetId)
-      if (monster && !monster.dead && dist(monster, ent) < 500) {
+      const outsideSafeZone = !zoneAt(this.game.world, ent.x, ent.y).safe
+      if (outsideSafeZone && monster && !monster.dead && dist(monster, ent) < 500) {
         this.targetId = monster.id
         this.state = 'grind'
         this.route = []
@@ -727,6 +751,16 @@ export class BotBrain {
   thinkGrind(dt: number, now: number) {
     const ent = this.ent
     const monsters = this.game.monsters
+
+    if (zoneAt(this.game.world, ent.x, ent.y).safe) {
+      this.targetId = null
+      this.pvpTargetId = null
+      this.focusUntil = 0
+      this.chooseProductiveFocus(now)
+      this.setPurpose('prepare', 'saindo da zona segura antes de combater')
+      this.startFocusedActivity(now)
+      return
+    }
 
     if (now >= this.grindUntil) {
       this.focusUntil = 0

@@ -68,6 +68,16 @@ export const VILLAGE_SPAWNS: Record<VillageId, { x: number; y: number }> = Objec
   ]),
 ) as Record<VillageId, { x: number; y: number }>
 
+export const VILLAGE_EXITS: Record<VillageId, { x: number; y: number; side: 'north' | 'south' | 'west' | 'east' }[]> =
+  Object.fromEntries(
+    Object.entries(VILLAGE_CENTERS).map(([id, c]) => [id, [
+      { x: (c.x + 0.5) * 32, y: (c.y - 15.5) * 32, side: 'north' as const },
+      { x: (c.x + 0.5) * 32, y: (c.y + 15.5) * 32, side: 'south' as const },
+      { x: (c.x - 15.5) * 32, y: (c.y + 0.5) * 32, side: 'west' as const },
+      { x: (c.x + 15.5) * 32, y: (c.y + 0.5) * 32, side: 'east' as const },
+    ]]),
+  ) as Record<VillageId, { x: number; y: number; side: 'north' | 'south' | 'west' | 'east' }[]>
+
 export const ZONE_ANCHORS: Record<string, { x: number; y: number }> = {
   vila: { x: 52, y: 58 },
   campo: { x: 128, y: 52 },
