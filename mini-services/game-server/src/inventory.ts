@@ -3,12 +3,13 @@
 // ============================================================
 
 import { POTION } from './data'
-import type { InventorySlot } from './types'
+import { EQUIPMENT_ITEMS } from './equipment'
+import type { EquipmentItemSlot, EquipmentStats, InventorySlot } from './types'
 
 export const INVENTORY_CAPACITY = 24
 
-export type ItemKind = 'consumable' | 'material'
-export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic'
+export type ItemKind = 'consumable' | 'material' | 'equipment'
+export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'unique'
 
 export interface ItemDef {
   id: string
@@ -18,6 +19,12 @@ export interface ItemDef {
   rarity: ItemRarity
   maxStack: number
   usable?: boolean
+  equipment?: {
+    slot: EquipmentItemSlot
+    requiredLv: number
+    price: number
+    baseStats: EquipmentStats
+  }
 }
 
 export const ITEMS: Record<string, ItemDef> = {
@@ -63,6 +70,7 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: 'epic',
     maxStack: 5,
   },
+  ...EQUIPMENT_ITEMS,
 }
 
 export const emptyInventory = (): InventorySlot[] =>
@@ -78,7 +86,8 @@ export function normalizeInventory(raw: unknown, legacyPotionCount = POTION.star
       const def = ITEMS[id]
       if (!def) continue
       const qty = Math.max(1, Math.min(def.maxStack, Math.floor(Number(entry.qty) || 1)))
-      slots[i] = { id, qty }
+      const upgrade = def.kind === 'equipment' ? Math.max(0, Math.min(11, Math.floor(Number(entry.upgrade) || 0))) : undefined
+      slots[i] = { id, qty, ...(upgrade != null ? { upgrade } : {}) }
     }
     return slots
   }
@@ -113,7 +122,7 @@ export function addItem(slots: InventorySlot[], itemId: string, qty = 1): number
   for (let i = 0; i < slots.length && remaining > 0; i++) {
     if (slots[i]) continue
     const add = Math.min(remaining, def.maxStack)
-    slots[i] = { id: itemId, qty: add }
+    slots[i] = { id: itemId, qty: add, ...(def.kind === 'equipment' ? { upgrade: 0 } : {}) }
     remaining -= add
   }
 
@@ -146,8 +155,9 @@ export function removeFromSlot(slots: InventorySlot[], index: number, qty = 1): 
 }
 
 export function itemDefsPayload() {
-  return Object.values(ITEMS).map(({ id, name, description, kind, rarity, maxStack, usable }) => ({
+  return Object.values(ITEMS).map(({ id, name, description, kind, rarity, maxStack, usable, equipment }) => ({
     id, name, description, kind, rarity, maxStack, usable: !!usable,
+    ...(equipment ? { equipment } : {}),
   }))
 }
 
