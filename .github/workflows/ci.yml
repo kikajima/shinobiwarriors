@@ -81,6 +81,10 @@ jobs:
         working-directory: mini-services/game-server
         run: bun pvp-test.ts
 
+      - name: Validate bounty and tracking system
+        working-directory: mini-services/game-server
+        run: bun bounty-test.ts
+
       - name: Smoke test multiplayer server
         working-directory: mini-services/game-server
         run: |

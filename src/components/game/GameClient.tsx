@@ -5,7 +5,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Coins, FlaskConical, X } from 'lucide-react'
+import { Coins, Crosshair, FlaskConical, X } from 'lucide-react'
 
 import { net } from './net'
 import { audio } from './audio'
@@ -22,7 +22,7 @@ import { TouchControls } from './ui/TouchControls'
 import LoginScreen from './ui/LoginScreen'
 import { PixelPanel } from './ui/pixel'
 import { Button } from '@/components/ui/button'
-import { VILLAGE_IDS, type ElementId, type VillageId, type RosterEnt, type ShopMsg, type WelcomeData } from './types'
+import { VILLAGE_IDS, VILLAGE_NAMES, type BountyCompleteMsg, type BountyMsg, type ElementId, type VillageId, type RosterEnt, type ShopMsg, type WelcomeData } from './types'
 
 const SAVED_KEY = 'shinobi-online-save'
 const VALID_ELEMENTS = new Set<ElementId>(['fogo', 'agua', 'raio', 'vento', 'terra'])
@@ -45,6 +45,8 @@ export default function GameClient() {
   const [muted, setMuted] = useState(false)
   const [deathBy, setDeathBy] = useState<string | null>(null)
   const [shop, setShop] = useState<ShopMsg | null>(null)
+  const [bounty, setBounty] = useState<BountyMsg | null>(null)
+  const [bountyDone, setBountyDone] = useState<BountyCompleteMsg | null>(null)
   const [missionDone, setMissionDone] = useState<{ name: string; gold: number; xp: number } | null>(null)
   const [zoneBanner, setZoneBanner] = useState<{ name: string; safe: boolean; key: number } | null>(null)
   const [isTouch, setIsTouch] = useState(false)
@@ -89,7 +91,7 @@ export default function GameClient() {
   useEffect(() => {
     const onWelcome = (w: WelcomeData) => {
       welcomeRef.current = w
-      setJoinError(null); setLoading(false); setPhase('playing'); setRoster(w.roster); setHud(null); setChatMsgs([]); setDeathBy(null); setShop(null)
+      setJoinError(null); setLoading(false); setPhase('playing'); setRoster(w.roster); setHud(null); setChatMsgs([]); setDeathBy(null); setShop(null); setBounty(w.self.bounty ? { open:false, active:true, contract:w.self.bounty } : null); setBountyDone(null)
       setEngineVersion((v) => v + 1)
     }
     net.on('welcome', onWelcome)
@@ -156,9 +158,11 @@ export default function GameClient() {
     const onSys = (d: { t: string }) => pushChat({ key: nextChatKey(), kind: 'sys', text: d.t })
     const onMission = (d: any) => { if (d.done) { setMissionDone({ name: d.name, gold: d.gold, xp: d.xp }); audio.play('lvl') } }
     const onShop = (d: ShopMsg) => setShop(d.open ? d : null)
+    const onBounty = (d: BountyMsg) => setBounty(d)
+    const onBountyComplete = (d: BountyCompleteMsg) => { setBounty(null); setBountyDone(d); audio.play('lvl') }
     const onDead = (d: { by: string }) => setDeathBy(d.by)
     const onRevived = (d: { x: number; y: number }) => { setDeathBy(null); engine.setSelfPos(d.x, d.y) }
-    net.on('chat', onChat); net.on('sys', onSys); net.on('mission', onMission); net.on('shop', onShop); net.on('dead', onDead); net.on('revived', onRevived)
+    net.on('chat', onChat); net.on('sys', onSys); net.on('mission', onMission); net.on('shop', onShop); net.on('bounty', onBounty); net.on('bountyComplete', onBountyComplete); net.on('dead', onDead); net.on('revived', onRevived)
 
     const hudTimer = setInterval(() => {
       setHud(engine.buildHud())
@@ -169,7 +173,7 @@ export default function GameClient() {
 
     return () => {
       clearInterval(hudTimer); ro.disconnect(); engine.stop(); input.detach(); engineRef.current = null
-      for (const e of ['snapshot','fx','dmg','objDestroy','objRespawn','pJoin','pLeave','lvl','chat','sys','mission','shop','dead','revived']) net.off(e)
+      for (const e of ['snapshot','fx','dmg','objDestroy','objRespawn','pJoin','pLeave','lvl','chat','sys','mission','shop','bounty','bountyComplete','dead','revived']) net.off(e)
     }
   }, [phase, engineVersion, art])
 
@@ -178,6 +182,12 @@ export default function GameClient() {
     const t = setTimeout(() => setMissionDone(null), 5000)
     return () => clearTimeout(t)
   }, [missionDone])
+
+  useEffect(() => {
+    if (!bountyDone) return
+    const t = setTimeout(() => setBountyDone(null), 5500)
+    return () => clearTimeout(t)
+  }, [bountyDone])
 
   const handlePlay = useCallback((name: string, element: ElementId, village: VillageId) => {
     const cleanName = name.trim().slice(0, 14)
@@ -233,6 +243,18 @@ export default function GameClient() {
       <div className="flex justify-between border-t border-dotted border-[#3a2f22] pt-2 text-[#a89b7d]"><span>Seu ouro: <span className="text-[#f0d060]">{shop.gold} ryō</span></span><span>Poções: <span className="text-[#e88a8a]">{shop.pot}/9</span></span></div>
       <Button onClick={() => net.buyPotion()} disabled={shop.gold < shop.price || shop.pot >= 9} className="h-auto w-full rounded-none border-2 border-[#f97316] bg-[#f97316] py-2.5 font-pixel text-[9px] text-[#1a0e05] shadow-[4px_4px_0_rgba(0,0,0,0.5)] hover:bg-[#ea580c] disabled:opacity-50">COMPRAR POÇÃO</Button></div>
     </PixelPanel></div> : null}
+    {bounty?.active && !bounty.open && bounty.contract ? <div className="pointer-events-auto absolute bottom-28 left-3 z-30 max-w-[310px] border-2 border-[#7a3328] bg-[#1a1410e8] px-3 py-2 shadow-[3px_3px_0_rgba(0,0,0,0.5)]"><div className="font-pixel text-[8px] tracking-wider text-[#ff8a80]">CAÇADA ATIVA</div><div className="font-retro mt-1 text-[15px] text-[#e8d5a9]">{bounty.contract.targetName} · Nv{bounty.contract.targetLv}</div><button type="button" onClick={() => net.bountyTrack()} className="font-retro mt-1 border border-[#7a3328] px-2 py-0.5 text-[13px] text-[#ffb0a8]"><Crosshair className="mr-1 inline h-3 w-3" />Rastrear</button></div> : null}
+    {bounty?.open ? <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#0f0d0a99] p-4"><PixelPanel className="w-[min(440px,94vw)] !p-4" title="OFICIAL DE CAÇADAS">
+      <button type="button" onClick={() => setBounty((b) => b ? { ...b, open: false } : null)} className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center border border-[#3a2f22] text-[#a89b7d]" aria-label="Fechar"><X className="h-4 w-4" /></button>
+      {bounty.contract ? <div className="font-retro mt-3 space-y-3 text-[15px] text-[#e8d5a9]">
+        <div className="border-2 border-[#5a2822] bg-[#241512] p-3"><div className="font-pixel text-[8px] tracking-wider text-[#ff8a80]">ALVO PROCURADO</div><div className="mt-2 text-xl text-[#fff0dc]">{bounty.contract.targetName}</div><div className="text-[#bfae91]">Nv{bounty.contract.targetLv} · {VILLAGE_NAMES[bounty.contract.targetVillage]}</div></div>
+        <div className="flex justify-between border-y border-dotted border-[#4a3528] py-2"><span>Recompensa:</span><span className="text-[#f0d060]">+{bounty.contract.rewardGold} ryō · +{bounty.contract.rewardXp} XP</span></div>
+        {bounty.clue ? <div className="border border-[#39506a] bg-[#121b24] p-2 text-[#9bd9f6]"><Crosshair className="mr-1 inline h-4 w-4" />Pista: {bounty.clue.distance}, direção {bounty.clue.direction}, região <span className="text-[#dff6ff]">{bounty.clue.zone}</span>{bounty.clue.safe ? ' (zona segura)' : ''}.</div> : null}
+        {bounty.error ? <div className="border border-[#7a3328] bg-[#2b1512] p-2 text-[#ff9b91]">{bounty.error}</div> : null}
+        <div className="grid grid-cols-2 gap-2"><Button onClick={() => net.bountyTrack()} className="h-auto rounded-none border-2 border-[#d65b4a] bg-[#8f3028] py-2 font-pixel text-[8px] text-white hover:bg-[#a83a30]"><Crosshair className="mr-1 h-4 w-4" />RASTREAR</Button><Button onClick={() => net.bountyAbandon()} className="h-auto rounded-none border-2 border-[#5a4a32] bg-[#211a12] py-2 font-pixel text-[8px] text-[#c8baa0] hover:bg-[#2d2318]">ABANDONAR</Button></div>
+      </div> : <div className="font-retro mt-4 text-center text-[16px] text-[#c8baa0]">{bounty.error || 'Não há contratos disponíveis agora.'}</div>}
+    </PixelPanel></div> : null}
+    {bountyDone ? <div className="pointer-events-none absolute left-1/2 top-[30%] z-40 -translate-x-1/2 text-center" style={{ animation: 'zone-banner 5.5s ease forwards' }}><PixelPanel className="!p-4"><div className="font-pixel text-[10px] tracking-widest text-[#ff8a80]">CAÇADA CONCLUÍDA!</div><div className="font-retro mt-2 text-lg text-[#e8d5a9]">{bountyDone.target}</div><div className="font-retro mt-1 text-[15px] text-[#f0d060]">+{bountyDone.gold} ryō · +{bountyDone.xp} XP</div></PixelPanel></div> : null}
     {missionDone ? <div className="pointer-events-none absolute left-1/2 top-1/4 z-40 -translate-x-1/2 text-center" style={{ animation: 'zone-banner 5s ease forwards' }}><PixelPanel className="!p-4"><div className="font-pixel text-[10px] tracking-widest text-[#7dff7d]">MISSÃO CONCLUÍDA!</div><div className="font-retro mt-2 text-lg text-[#e8d5a9]">{missionDone.name}</div><div className="font-retro mt-1 text-[15px] text-[#f0d060]">+{missionDone.gold} ryō • +{missionDone.xp} XP</div></PixelPanel></div> : null}
     {!connected ? <div className="pointer-events-none absolute inset-x-0 top-1/2 z-50 flex justify-center"><div className="font-pixel border-2 border-[#f0d060] bg-[#1a1410] px-4 py-3 text-[9px] tracking-wider text-[#f0d060] shadow-[4px_4px_0_rgba(0,0,0,0.5)]">RECONECTANDO AO SERVIDOR...</div></div> : null}
   </div>

@@ -17,7 +17,7 @@ const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
 export type BotFocus = 'mission' | 'grind' | 'explore' | 'pvp' | 'social'
 export const BOT_FOCUS_TYPES: BotFocus[] = ['mission', 'grind', 'explore', 'pvp', 'social']
 
-export type BotPurposeKind = 'mission' | 'hunt' | 'explore' | 'pvp' | 'recover' | 'social' | 'heal' | 'shop' | 'prepare'
+export type BotPurposeKind = 'mission' | 'hunt' | 'explore' | 'pvp' | 'bounty' | 'recover' | 'social' | 'heal' | 'shop' | 'prepare'
 export interface BotPurpose {
   kind: BotPurposeKind
   label: string
@@ -218,11 +218,13 @@ export class BotBrain {
   lastProgressAt = 0
   lastProgressPos = { x: 0, y: 0 }
   nextPurposeCheckAt = 0
-  villageTask: 'heal' | 'shop' | 'social' | 'depart' = 'heal'
+  villageTask: 'heal' | 'shop' | 'bounty' | 'social' | 'depart' = 'heal'
   villageRoute: { x: number; y: number }[] = []
   villageRouteI = 0
   villageTaskUntil = 0
   villagePreparedAt = 0
+  nextBountyPlanAt = 0
+  bountyLastKnown: { x: number; y: number; at: number; targetId?: number } | null = null
 
   constructor(game: Game, ent: PlayerEnt) {
     this.game = game
@@ -316,6 +318,59 @@ export class BotBrain {
       this.focusUntil = now + 60000 + rnd() * 150000
     }
     return this.focus
+  }
+
+  shouldTakeBounty(): boolean {
+    const ent = this.ent
+    if (ent.bounty && ent.bounty.expiresAt > Date.now()) return true
+    if (ent.lv < 3 || ent.pot < 2) return false
+    const base = .12 + this.personality.pvp * .58 + (this.personality.primary === 'pvp' ? .16 : 0)
+    return rnd() < Math.min(.88, base)
+  }
+
+  shouldPursueBounty(now = Date.now()): boolean {
+    const b = this.ent.bounty
+    if (!b || b.expiresAt <= now || this.ent.lv < 3 || this.ent.pot < 1) return false
+    const gap = b.targetLv - this.ent.lv
+    const maxGap = 2 + Math.round((1 - this.personality.caution) * 6)
+    if (gap > maxGap) return false
+    return this.focus === 'pvp' || this.personality.pvp > .62 || rnd() < .28 + this.personality.pvp * .42
+  }
+
+  planBountyHunt(now: number): boolean {
+    const ent = this.ent
+    const b = ent.bounty
+    if (!b || b.expiresAt <= now) return false
+    if (now < this.nextBountyPlanAt && this.route.length) return true
+    this.nextBountyPlanAt = now + 2500
+
+    const clue = this.game.trackBounty(ent, now, true)
+    if (!clue.ok) {
+      if (this.bountyLastKnown && now - this.bountyLastKnown.at < 45000) {
+        this.setPurpose('bounty', `seguindo última pista de ${b.targetName}`, this.bountyLastKnown.targetId)
+        this.state = 'travel'
+        return this.routeToPoint(this.bountyLastKnown.x, this.bountyLastKnown.y)
+      }
+      return false
+    }
+
+    const target = clue.target as PlayerEnt
+    this.bountyLastKnown = { x: target.x, y: target.y, at: now, targetId: target.id }
+
+    if (clue.safe) {
+      const exits = VILLAGE_EXITS[target.village] || []
+      const exit = [...exits].sort((a,b)=>dist(ent,a)-dist(ent,b))[0]
+      if (!exit) return false
+      this.setPurpose('bounty', `aguardando ${target.name} sair de ${clue.zone}`, target.id)
+      this.state = 'travel'
+      this.pvpTargetId = null
+      return this.routeToPoint(exit.x, exit.y)
+    }
+
+    this.setPurpose('bounty', `rastreando contrato: ${target.name}`, target.id)
+    this.state = 'travel'
+    this.pvpTargetId = null
+    return this.routeToPoint(target.x, target.y)
   }
 
   setPurpose(kind: BotPurposeKind, label: string, targetId?: number) {
@@ -449,6 +504,8 @@ export class BotBrain {
       return
     }
 
+    if (this.shouldPursueBounty(now) && this.planBountyHunt(now)) return
+
     if (this.focus === 'social') {
       this.setPurpose('social', 'fazendo uma pausa curta na vila')
       this.routeTo('vila', false)
@@ -516,6 +573,25 @@ export class BotBrain {
     this.startFocusedActivity(Date.now())
   }
 
+  onBountyAssigned() {
+    const now = Date.now()
+    this.nextBountyPlanAt = 0
+    if (this.ent.bounty && (this.personality.pvp > .5 || rnd() < .55)) {
+      this.focus = 'pvp'
+      this.focusUntil = now + 90000 + rnd() * 150000
+    }
+  }
+
+  onBountyComplete(victim: PlayerEnt, xp: number, gold: number) {
+    void xp; void gold
+    this.pvpTargetId = null
+    this.targetId = null
+    this.bountyLastKnown = null
+    this.focusUntil = 0
+    if (rnd() < .25 * this.personality.social) this.game.chatOut(this.ent, `contrato em ${victim.name} concluido, vou me preparar`)
+    this.routeTo('vila', false)
+  }
+
   onPvpHit(src: PlayerEnt) {
     if (src.id === this.ent.id || src.dead) return
     this.setPurpose('pvp', `revidando ataque de ${src.name}`, src.id)
@@ -567,6 +643,15 @@ export class BotBrain {
       if (this.state !== 'travel') this.startFocusedActivity(now)
     }
 
+    const bountyTarget = ent.bounty ? this.game.playerByName(ent.bounty.targetName) : null
+    if (bountyTarget && !bountyTarget.dead && this.game.canPvp(ent, bountyTarget) && dist(ent, bountyTarget) < 560 && this.shouldPursueBounty(now)) {
+      this.setPurpose('bounty', `encontrou o alvo: ${bountyTarget.name}`, bountyTarget.id)
+      this.pvpTargetId = bountyTarget.id
+      this.pvpUntil = now + 14000
+    } else if (ent.bounty && this.shouldPursueBounty(now) && now >= this.nextBountyPlanAt && this.state !== 'rest' && !this.inCombat()) {
+      this.planBountyHunt(now)
+    }
+
     const rival = this.pvpTargetId != null ? this.game.players.get(this.pvpTargetId) : undefined
     if (rival && now < this.pvpUntil && this.game.canPvp(ent, rival)) {
       this.thinkPvp(rival, dt, now)
@@ -603,6 +688,7 @@ export class BotBrain {
     const ent = this.ent
     const fountain = this.game.world.fountains.find(f => f.village === ent.village)
     const shops = this.game.world.shops.filter(q => q.village === ent.village)
+    const bountyNpc = this.game.world.bountyNpcs.find(q => q.village === ent.village)
 
     if (this.villageTask === 'heal') {
       const hpFull = ent.hp >= maxHpOf(ent.lv) * .98
@@ -625,7 +711,7 @@ export class BotBrain {
       const desired = this.desiredPotionStock()
       const canBuy = ent.pot < desired && ent.gold >= POTION.price
       if (!canBuy || !shops.length) {
-        this.villageTask = 'social'
+        this.villageTask = this.shouldTakeBounty() && bountyNpc ? 'bounty' : 'social'
         this.villageTaskUntil = now + 1800 + rnd() * (1800 + this.personality.social * 3500)
         this.clearVillageRoute()
       } else {
@@ -633,7 +719,7 @@ export class BotBrain {
         if (dist(ent, shop) < 140) {
           this.setPurpose('shop', `comprando suprimentos em ${shop.name}`)
           this.game.botBuyPotions(ent, desired, this.goldReserve())
-          this.villageTask = 'social'
+          this.villageTask = this.shouldTakeBounty() && bountyNpc ? 'bounty' : 'social'
           this.villageTaskUntil = now + 1800 + rnd() * (1800 + this.personality.social * 3500)
           this.clearVillageRoute()
         } else {
@@ -641,6 +727,22 @@ export class BotBrain {
           this.followVillageRoute(shop.x, shop.y, dt)
           return
         }
+      }
+    }
+
+    if (this.villageTask === 'bounty') {
+      if (!bountyNpc) {
+        this.villageTask = 'social'
+      } else if (dist(ent, bountyNpc) < 110) {
+        this.setPurpose('bounty', 'pegando contrato de caça')
+        if (!ent.bounty || ent.bounty.expiresAt <= now) this.game.assignBounty(ent, now)
+        this.villageTask = 'social'
+        this.villageTaskUntil = now + 900 + rnd() * 2200
+        this.clearVillageRoute()
+      } else {
+        this.setPurpose('bounty', 'indo ao Oficial de Caçadas')
+        this.followVillageRoute(bountyNpc.x, bountyNpc.y, dt)
+        return
       }
     }
 
@@ -672,9 +774,22 @@ export class BotBrain {
   thinkTravel(dt: number, now: number) {
     const ent = this.ent
 
+    if (this.purpose.kind === 'bounty' && this.purpose.targetId != null) {
+      const target = this.game.players.get(this.purpose.targetId)
+      if (target && !target.dead && this.game.canPvp(ent, target) && dist(target, ent) < 560) {
+        this.pvpTargetId = target.id
+        this.pvpUntil = now + 14000
+        this.route = []
+        this.routeI = 0
+        this.routeGoal = null
+        this.thinkPvp(target, dt, now)
+        return
+      }
+    }
+
     // Se o propósito era chegar a um monstro e ele já está perto, começa o combate
     // sem insistir em terminar waypoints antigos.
-    if (this.purpose.targetId != null) {
+    if (this.purpose.kind !== 'bounty' && this.purpose.targetId != null) {
       const monster = this.game.monsters.get(this.purpose.targetId)
       const outsideSafeZone = !zoneAt(this.game.world, ent.x, ent.y).safe
       if (outsideSafeZone && monster && !monster.dead && dist(monster, ent) < 500) {
@@ -694,6 +809,10 @@ export class BotBrain {
       this.routeGoal = null
       if (this.returningToVillage) {
         this.beginVillageRoutine(now)
+      } else if (this.purpose.kind === 'bounty' && ent.bounty) {
+        this.state = 'grind'
+        this.grindUntil = now + 8000
+        this.nextBountyPlanAt = Math.min(this.nextBountyPlanAt, now + 1200)
       } else {
         this.state = 'grind'
         const base = this.focus === 'explore' ? 70000 : this.focus === 'pvp' ? 90000 : 180000
@@ -760,6 +879,10 @@ export class BotBrain {
       this.setPurpose('prepare', 'saindo da zona segura antes de combater')
       this.startFocusedActivity(now)
       return
+    }
+
+    if (ent.bounty && this.shouldPursueBounty(now) && now >= this.nextBountyPlanAt) {
+      if (this.planBountyHunt(now)) return
     }
 
     if (now >= this.grindUntil) {

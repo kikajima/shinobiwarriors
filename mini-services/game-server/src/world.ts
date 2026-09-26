@@ -40,6 +40,14 @@ export interface ShopPoint {
   village: VillageId
 }
 
+export interface BountyNpcPoint {
+  id: number
+  name: string
+  x: number
+  y: number
+  village: VillageId
+}
+
 export interface World {
   w: number
   h: number
@@ -51,6 +59,7 @@ export interface World {
   fountains: { x: number; y: number; village: VillageId }[]
   fountain: { x: number; y: number }
   shops: ShopPoint[]
+  bountyNpcs: BountyNpcPoint[]
   shopNpc: { x: number; y: number }
 }
 
@@ -279,7 +288,9 @@ export function genWorld(): World {
 
   const fountains: { x: number; y: number; village: VillageId }[] = []
   const shops: ShopPoint[] = []
+  const bountyNpcs: BountyNpcPoint[] = []
   let nextShopId = 1
+  let nextBountyNpcId = 1
 
   const shopNames: Record<VillageId, [string, string]> = {
     folha: ['Ichiraku Ramen', 'Armazém da Folha'],
@@ -321,6 +332,14 @@ export function genWorld(): World {
     const fx = c.x + 5, fy = c.y + 3
     placeObject('fountain', fx, fy, true)
     fountains.push({ x: (fx + 1) * 32, y: (fy + 1) * 32, village: id })
+
+    bountyNpcs.push({
+      id: nextBountyNpcId++,
+      name: 'Oficial de Caçadas',
+      x: (c.x - 5.5) * 32,
+      y: (c.y + 4.5) * 32,
+      village: id,
+    })
 
     const r = 14
     for (let i = c.x - r; i <= c.x + r; i++) {
@@ -439,6 +458,7 @@ export function genWorld(): World {
     fountains,
     fountain: fountains[0],
     shops,
+    bountyNpcs,
     shopNpc: shops[0],
   }
 }

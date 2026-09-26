@@ -34,6 +34,7 @@ export interface MapData {
   fountains: { x: number; y: number; village: VillageId }[]
   fountain: { x: number; y: number }
   shops: { id: number; name: string; x: number; y: number; village: VillageId }[]
+  bountyNpcs: { id: number; name: string; x: number; y: number; village: VillageId }[]
   shopNpc: { x: number; y: number }
 }
 
@@ -41,7 +42,7 @@ export interface WelcomeData {
   id: number
   t: number
   online: number
-  self: { n: string; el: ElementId; village: VillageId; lv: number; xp: number; gold: number; pot: number; x: number; y: number }
+  self: { n: string; el: ElementId; village: VillageId; lv: number; xp: number; gold: number; pot: number; x: number; y: number; bounty?: BountyContractView | null }
   map: MapData
   skills: { name: string; archetype: string; cd: number; ch: number; range: number }[]
   missions: { name: string; monster: string; need: number }[]
@@ -150,6 +151,28 @@ export interface ShopMsg {
   gold: number
   pot: number
   price: number
+}
+
+export interface BountyContractView {
+  targetName: string
+  targetVillage: VillageId
+  targetLv: number
+  rewardXp: number
+  rewardGold: number
+  expiresAt: number
+  nextTrackAt: number
+}
+export interface BountyMsg {
+  open: boolean
+  active: boolean
+  contract: BountyContractView | null
+  clue?: { direction: string; distance: string; zone: string; safe: boolean } | null
+  error?: string | null
+}
+export interface BountyCompleteMsg {
+  target: string
+  xp: number
+  gold: number
 }
 
 export const TILE = 32

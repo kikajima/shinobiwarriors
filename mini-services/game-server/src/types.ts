@@ -32,6 +32,7 @@ export interface PlayerEnt {
   mp: number // progresso da missão
   lastChatAt: number
   lastHealAt: number
+  bounty?: BountyContract | null
 }
 
 export interface MonsterEnt {
@@ -96,6 +97,7 @@ export interface SavedPlayer {
   xp: number
   gold: number
   pot: number
+  bounty?: BountyContract | null
 }
 
 
@@ -109,4 +111,17 @@ export interface SavedBotProfile {
   pot: number
   mi: number
   mp: number
+  bounty?: BountyContract | null
+}
+
+
+export interface BountyContract {
+  targetName: string
+  targetVillage: VillageId
+  targetLv: number
+  rewardXp: number
+  rewardGold: number
+  acceptedAt: number
+  expiresAt: number
+  nextTrackAt: number
 }

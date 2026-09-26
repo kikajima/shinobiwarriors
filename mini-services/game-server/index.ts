@@ -73,6 +73,9 @@ io.on('connection', (socket) => {
 
   socket.on('buyPotion', () => game.handleBuyPotion(socket))
 
+  socket.on('bountyTrack', () => game.handleBountyTrack(socket))
+  socket.on('bountyAbandon', () => game.handleBountyAbandon(socket))
+
   socket.on('respawn', () => {
     const ent = game.entOf(socket)
     if (ent) game.respawnPlayer(ent)

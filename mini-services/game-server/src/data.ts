@@ -39,6 +39,15 @@ export const xpNeedOf = (lv: number) => Math.round(70 * Math.pow(lv, 1.35))
 
 export const BASIC = { cd: 550, range: 95, arc: 75 }
 export const POTION = { healPct: 0.55, cd: 9000, price: 25, start: 3, max: 9 }
+export const BOUNTY = {
+  duration: 15 * 60 * 1000,
+  trackCooldown: 12 * 1000,
+  baseXp: 90,
+  xpPerLevel: 14,
+  baseGold: 80,
+  goldPerLevel: 12,
+}
+
 export const CRIT_CHANCE = 0.15
 export const CRIT_MULT = 1.5
 
