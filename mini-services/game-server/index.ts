@@ -73,6 +73,10 @@ io.on('connection', (socket) => {
 
   socket.on('buyPotion', () => game.handleBuyPotion(socket))
   socket.on('inventoryUse', (d?: { slot?: number }) => game.handleInventoryUse(socket, d))
+  socket.on('equipItem', (d?: { slot?: number; target?: string }) => game.handleEquip(socket, d))
+  socket.on('unequipItem', (d?: { slot?: string }) => game.handleUnequip(socket, d))
+  socket.on('buyEquipment', (d?: { itemId?: string }) => game.handleBuyEquipment(socket, d))
+  socket.on('forgeEquipment', (d?: { slot?: string }) => game.handleForge(socket, d))
 
   socket.on('bountyTrack', () => game.handleBountyTrack(socket))
   socket.on('bountyAbandon', () => game.handleBountyAbandon(socket))
