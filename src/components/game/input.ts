@@ -16,7 +16,7 @@ export interface InputState {
   attackHeld: boolean
 }
 
-export type ActionListener = (action: 'attack' | 'skill0' | 'skill1' | 'skill2' | 'skill3' | 'potion' | 'interact') => void
+export type ActionListener = (action: 'attack' | 'skill0' | 'skill1' | 'skill2' | 'skill3' | 'potion' | 'interact' | 'inventory') => void
 
 export class InputController {
   state: InputState = {
@@ -90,6 +90,7 @@ export class InputController {
     if (k === '4') this.onAction?.('skill3')
     if (k === 'q' || k === '5') this.onAction?.('potion')
     if (k === 'e') this.onAction?.('interact')
+    if (k === 'i') this.onAction?.('inventory')
   }
 
   private onKeyUp = (e: KeyboardEvent) => {
