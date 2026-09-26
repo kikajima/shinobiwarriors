@@ -17,6 +17,14 @@ const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
 export type BotFocus = 'mission' | 'grind' | 'explore' | 'pvp' | 'social'
 export const BOT_FOCUS_TYPES: BotFocus[] = ['mission', 'grind', 'explore', 'pvp', 'social']
 
+export type BotPurposeKind = 'mission' | 'hunt' | 'explore' | 'pvp' | 'recover' | 'social'
+export interface BotPurpose {
+  kind: BotPurposeKind
+  label: string
+  since: number
+  targetId?: number
+}
+
 export interface BotPersonality {
   primary: BotFocus
   mission: number
@@ -114,13 +122,14 @@ export function findBotPath(
   let head = 0, tail = 0
   queue[tail++] = start
   prev[start] = start
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]] as const
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]] as const
 
   while (head < tail && prev[goal] === -1) {
     const cur = queue[head++], cx = cur % w, cy = Math.floor(cur / w)
     for (const [dx, dy] of dirs) {
       const nx = cx + dx, ny = cy + dy
       if (!tileWalkable(world, nx, ny)) continue
+      if (dx !== 0 && dy !== 0 && (!tileWalkable(world, cx + dx, cy) || !tileWalkable(world, cx, cy + dy))) continue
       const ni = ny * w + nx
       if (prev[ni] !== -1) continue
       prev[ni] = cur
@@ -203,6 +212,12 @@ export class BotBrain {
   returningToVillage = false
   lastZone = ''
   zoneChanges = 0
+  purpose: BotPurpose = { kind: 'hunt', label: 'procurando treino', since: 0 }
+  routeGoal: { x: number; y: number } | null = null
+  routeFailures = 0
+  lastProgressAt = 0
+  lastProgressPos = { x: 0, y: 0 }
+  nextPurposeCheckAt = 0
 
   constructor(game: Game, ent: PlayerEnt) {
     this.game = game
@@ -248,6 +263,63 @@ export class BotBrain {
     return this.focus
   }
 
+  setPurpose(kind: BotPurposeKind, label: string, targetId?: number) {
+    this.purpose = { kind, label, since: Date.now(), ...(targetId != null ? { targetId } : {}) }
+  }
+
+  findPreferredMonster(missionOnly = false): MonsterEnt | null {
+    const ent = this.ent
+    const mission = MISSIONS[ent.mi]
+    let best: MonsterEnt | null = null
+    let bestScore = Infinity
+    for (const m of this.game.monsters.values()) {
+      if (m.dead) continue
+      const missionMatch = !mission || mission.monster === 'any' || mission.monster === m.t
+      if (missionOnly && !missionMatch && mission?.monster !== 'any') continue
+      if (m.lv > ent.lv + (missionMatch ? 6 : 3)) continue
+      const d = dist(m, ent)
+      let claimers = 0
+      for (const p of this.game.players.values()) {
+        if (p.id === ent.id || p.kind !== 'bot' || !p.bot) continue
+        if (p.bot.targetId === m.id || p.bot.purpose.targetId === m.id) claimers++
+      }
+      let score = d + Math.max(0, m.lv - ent.lv) * 70 + claimers * 210
+      if (missionMatch) score -= 260 * this.personality.mission
+      if (m.lv <= ent.lv + 1) score -= 45 * this.personality.grind
+      if (score < bestScore) { best = m; bestScore = score }
+    }
+    return best
+  }
+
+  routeToPoint(targetX: number, targetY: number): boolean {
+    const ent = this.ent
+    const route = findBotPath(this.game.world, ent.x, ent.y, targetX, targetY)
+    if (!route.length) {
+      this.route = []
+      this.routeI = 0
+      this.routeGoal = null
+      this.routeFailures++
+      return false
+    }
+    this.route = route
+    this.routeI = 0
+    this.routeGoal = route[route.length - 1] || { x: targetX, y: targetY }
+    this.routeFailures = 0
+    this.lastProgressAt = Date.now()
+    this.lastProgressPos = { x: ent.x, y: ent.y }
+    return true
+  }
+
+  routeToMonster(monster: MonsterEnt, kind: 'mission' | 'hunt'): boolean {
+    this.setPurpose(kind, kind === 'mission' ? `cumprindo missão: ${monster.name}` : `caçando ${monster.name}`, monster.id)
+    this.state = 'travel'
+    this.returningToVillage = false
+    this.targetId = monster.id
+    const ok = this.routeToPoint(monster.spawnX, monster.spawnY)
+    if (!ok) this.targetId = null
+    return ok
+  }
+
   startFocusedActivity(now: number) {
     const ent = this.ent
     this.chooseFocus(now)
@@ -255,28 +327,36 @@ export class BotBrain {
     this.pvpTargetId = null
 
     if (this.focus === 'social') {
+      this.setPurpose('social', 'voltando à vila para descansar')
       this.routeTo('vila', false)
       return
     }
 
     if (this.focus === 'mission') {
+      const target = this.findPreferredMonster(true)
+      if (target && this.routeToMonster(target, 'mission')) return
       const missionZone = missionZoneFor(ent)
+      this.setPurpose('mission', 'indo para a área da missão')
       this.routeTo(missionZone || zoneForLevel(ent.lv), false)
       return
     }
 
     if (this.focus === 'grind') {
+      const target = this.findPreferredMonster(false)
+      if (target && this.routeToMonster(target, 'hunt')) return
+      this.setPurpose('hunt', 'procurando inimigos para treinar')
       this.routeTo(zoneForLevel(ent.lv), false)
       return
     }
 
     if (this.focus === 'explore') {
       const choices = ['campo', 'floresta', 'lago', 'vale'].filter(z => z !== this.zone)
+      this.setPurpose('explore', 'explorando uma nova região')
       this.routeTo(pick(choices.length ? choices : ['campo', 'floresta', 'lago', 'vale']), false)
       return
     }
 
-    // PvP: aproxima-se das áreas de conflito, mas ainda viaja normalmente.
+    this.setPurpose('pvp', 'patrulhando as fronteiras por rivais')
     this.routeTo('vale', false)
   }
 
@@ -298,6 +378,7 @@ export class BotBrain {
 
   onPvpHit(src: PlayerEnt) {
     if (src.id === this.ent.id || src.dead) return
+    this.setPurpose('pvp', `revidando ataque de ${src.name}`, src.id)
     this.pvpTargetId = src.id
     this.pvpUntil = Date.now() + 12000
     this.targetId = null
@@ -364,6 +445,7 @@ export class BotBrain {
         const d = dist(candidate, ent)
         const engageChance = Math.min(.96, this.personality.pvp * pvpIntent + (d < 125 ? .42 : 0))
         if (rnd() < engageChance) {
+          this.setPurpose('pvp', `enfrentando rival: ${candidate.name}`, candidate.id)
           this.pvpTargetId = candidate.id
           this.pvpUntil = now + 7000 + rnd() * (9000 + this.personality.pvp * 5000)
           this.targetId = null
@@ -394,52 +476,89 @@ export class BotBrain {
       this.wanderAng = rnd() * Math.PI * 2
     }
     const vila = VILLAGE_SPAWNS[ent.village] || VILLAGE_SPAWNS.folha
-    const wx = ent.x + Math.cos(this.wanderAng) * 30 * dt
-    const wy = ent.y + Math.sin(this.wanderAng) * 30 * dt
-    if (this.game.canStand(wx, wy) && dist({ x: wx, y: wy }, vila) < 260) {
-      ent.x = wx; ent.y = wy
-    }
+    const wx = ent.x + Math.cos(this.wanderAng) * 45
+    const wy = ent.y + Math.sin(this.wanderAng) * 45
+    if (dist({ x: wx, y: wy }, vila) < 260) this.stepToward(wx, wy, 30 * dt)
   }
 
   thinkTravel(dt: number, now: number) {
-    void now
     const ent = this.ent
+
+    // Se o propósito era chegar a um monstro e ele já está perto, começa o combate
+    // sem insistir em terminar waypoints antigos.
+    if (this.purpose.targetId != null) {
+      const monster = this.game.monsters.get(this.purpose.targetId)
+      if (monster && !monster.dead && dist(monster, ent) < 500) {
+        this.targetId = monster.id
+        this.state = 'grind'
+        this.route = []
+        this.routeI = 0
+        this.routeGoal = null
+        this.grindUntil = now + 120000 + rnd() * 220000
+        return
+      }
+    }
+
     const wp = this.route[this.routeI]
     if (!wp) {
       this.targetId = null
+      this.routeGoal = null
       if (this.returningToVillage) {
         this.returningToVillage = false
         this.state = 'rest'
         const socialBonus = this.focus === 'social' ? 18000 : 0
-        this.restUntil = Date.now() + 5000 + rnd() * 10000 + socialBonus
+        this.restUntil = now + 5000 + rnd() * 10000 + socialBonus
       } else {
         this.state = 'grind'
         const base = this.focus === 'explore' ? 70000 : this.focus === 'pvp' ? 90000 : 180000
         const span = this.focus === 'grind' ? 300000 : 150000
-        this.grindUntil = Date.now() + base + rnd() * span
+        this.grindUntil = now + base + rnd() * span
       }
       return
     }
-    this.stepToward(wp.x, wp.y, BOT_SPEED * dt)
-    if (dist(ent, wp) < 30) this.routeI++
 
-    if (Date.now() >= this.stuckCheckAt) {
-      this.stuckCheckAt = Date.now() + 2600
-      if (dist(ent, this.stuckPos) < 14) {
+    this.stepToward(wp.x, wp.y, BOT_SPEED * dt)
+    if (dist(ent, wp) < 24) this.routeI++
+
+    // Recuperação de rota: mede progresso real, não animação/intenção.
+    if (now >= this.stuckCheckAt) {
+      this.stuckCheckAt = now + 1800
+      const moved = dist(ent, this.lastProgressPos)
+      if (moved >= 18) {
+        this.stuckCount = 0
+        this.lastProgressAt = now
+        this.lastProgressPos = { x: ent.x, y: ent.y }
+      } else {
         this.stuckCount++
         if (this.stuckCount >= 2) {
-          const goal = this.route[this.route.length - 1]
+          const goal = this.routeGoal
           const reroute = goal ? findBotPath(this.game.world, ent.x, ent.y, goal.x, goal.y) : []
           if (reroute.length) {
             this.route = reroute
             this.routeI = 0
+            this.routeGoal = reroute[reroute.length - 1] || goal
+            this.stuckCount = 0
+            this.lastProgressPos = { x: ent.x, y: ent.y }
+            this.lastProgressAt = now
           } else {
-            this.routeI++
+            // Nunca anda em linha reta por uma rota impossível.
+            this.route = []
+            this.routeI = 0
+            this.routeGoal = null
+            this.targetId = null
+            this.stuckCount = 0
+            this.routeFailures++
+            this.focusUntil = 0
+            if (this.routeFailures >= 2) {
+              this.setPurpose('recover', 'recalculando caminho pela vila')
+              this.routeTo('vila', false)
+            } else {
+              this.chooseFocus(now, true)
+              this.startFocusedActivity(now)
+            }
           }
-          this.stuckCount = 0
         }
-      } else this.stuckCount = 0
-      this.stuckPos = { x: ent.x, y: ent.y }
+      }
     }
   }
 
@@ -478,21 +597,29 @@ export class BotBrain {
     }
 
     if (!target) {
-      if (now >= this.wanderAt) {
-        this.wanderAt = now + 1500 + rnd() * 2500
-        this.wanderAng = rnd() * Math.PI * 2
+      if (now >= this.nextPurposeCheckAt && (this.focus === 'mission' || this.focus === 'grind')) {
+        this.nextPurposeCheckAt = now + 3500 + rnd() * 3500
+        const preferred = this.findPreferredMonster(this.focus === 'mission')
+        if (preferred && dist(preferred, ent) > 430 && this.routeToMonster(preferred, this.focus === 'mission' ? 'mission' : 'hunt')) return
+        if (preferred) { target = preferred; this.targetId = preferred.id }
       }
-      const anchorTile = this.currentAnchor()
-      const anchor = { x: (anchorTile.x + .5) * TILE, y: (anchorTile.y + .5) * TILE }
-      const d = dist(ent, anchor)
-      if (d > 140) {
-        this.stepToward(anchor.x + (rnd() - 0.5) * 90, anchor.y + (rnd() - 0.5) * 90, BOT_SPEED * dt)
-      } else if (rnd() < 0.4) {
-        const wx = ent.x + Math.cos(this.wanderAng) * 55 * dt
-        const wy = ent.y + Math.sin(this.wanderAng) * 55 * dt
-        if (walkable(this.game.world, wx, wy)) { ent.x = wx; ent.y = wy }
+      if (!target) {
+        if (now >= this.wanderAt) {
+          this.wanderAt = now + 1800 + rnd() * 2600
+          this.wanderAng = rnd() * Math.PI * 2
+        }
+        const anchorTile = this.currentAnchor()
+        const anchor = { x: (anchorTile.x + .5) * TILE, y: (anchorTile.y + .5) * TILE }
+        const d = dist(ent, anchor)
+        if (d > 120) {
+          this.stepToward(anchor.x, anchor.y, BOT_SPEED * dt)
+        } else if (rnd() < .22 + this.personality.explore * .22) {
+          const wx = ent.x + Math.cos(this.wanderAng) * 70
+          const wy = ent.y + Math.sin(this.wanderAng) * 70
+          this.stepToward(wx, wy, 48 * dt)
+        }
+        return
       }
-      return
     }
 
     const d = dist(target, ent)
@@ -503,6 +630,7 @@ export class BotBrain {
     }
     const retreatAt = .11 + this.personality.caution * .16
     if (hpPct < retreatAt && rnd() < .08 + this.personality.caution * .08) {
+      this.setPurpose('recover', 'recuando para recuperar vida e poções')
       this.routeTo('vila', false)
       this.targetId = null
       if (rnd() < 0.12 * this.personality.social) this.game.chatOut(ent, 'vou recuperar na vila, ja volto')
@@ -593,6 +721,7 @@ export class BotBrain {
       this.pvpTargetId = null
       this.targetId = null
       this.focusUntil = Math.min(this.focusUntil, now + 25000)
+      this.setPurpose('recover', 'recuando de uma luta desfavorável')
       this.routeTo('vila', false)
       return
     }
@@ -632,7 +761,17 @@ export class BotBrain {
   currentAnchor(): { x: number; y: number } {
     const list = GRIND_ANCHORS[this.zone]
     if (!list || !list.length) return ZONE_ANCHORS[this.zone] || ZONE_ANCHORS.vila
-    if (!this.grindAnchor) this.grindAnchor = pick(list)
+    if (!this.grindAnchor) {
+      if (this.focus === 'explore') this.grindAnchor = pick(list)
+      else if (this.focus === 'pvp') {
+        const center = { x: this.game.world.w / 2, y: this.game.world.h / 2 }
+        this.grindAnchor = [...list].sort((a,b)=>dist(a,center)-dist(b,center))[0] || list[0]
+      } else {
+        const entTile = { x: this.ent.x / TILE, y: this.ent.y / TILE }
+        const nearest = [...list].sort((a,b)=>dist(a,entTile)-dist(b,entTile)).slice(0,Math.min(3,list.length))
+        this.grindAnchor = pick(nearest)
+      }
+    }
     return this.grindAnchor
   }
 
@@ -646,8 +785,7 @@ export class BotBrain {
         this.grindAnchor = null
       }
       this.zone = zone
-      // escolhe uma clareira estável até a próxima viagem
-      this.grindAnchor = pick(GRIND_ANCHORS[this.zone] || [ZONE_ANCHORS[this.zone] || ZONE_ANCHORS.vila])
+      this.grindAnchor = this.currentAnchor()
     }
     this.state = 'travel'
     this.routeI = 0
@@ -658,25 +796,61 @@ export class BotBrain {
     const home = VILLAGE_SPAWNS[ent.village] || VILLAGE_SPAWNS.folha
     const targetX = target ? (target.x + .5) * TILE : home.x
     const targetY = target ? (target.y + .5) * TILE : home.y
-    this.route = findBotPath(this.game.world, ent.x, ent.y, targetX, targetY)
-    if (!this.route.length) this.route = [{ x: targetX, y: targetY }]
+
+    if (zone === 'vila' && this.purpose.kind !== 'recover' && this.purpose.kind !== 'social') {
+      this.setPurpose('social', 'voltando à vila')
+    }
+
+    if (!this.routeToPoint(targetX, targetY)) {
+      // Uma rota impossível nunca vira caminhada cega.
+      this.state = 'rest'
+      this.returningToVillage = false
+      this.restUntil = Date.now() + 1200 + rnd() * 1800
+      this.focusUntil = 0
+    }
   }
 
-  stepToward(tx: number, ty: number, step: number) {
+  stepToward(tx: number, ty: number, step: number): boolean {
     const ent = this.ent
     const dx = tx - ent.x, dy = ty - ent.y
     const d = Math.hypot(dx, dy)
-    if (d < 2 || step <= 0) return
+    if (d < 2 || step <= 0) return false
+
+    const ox = ent.x, oy = ent.y
     const sx = (dx / d) * step, sy = (dy / d) * step
-    ent.dir = dir8(dx, dy)
 
     if (this.game.canStand(ent.x + sx, ent.y + sy)) {
       ent.x += sx; ent.y += sy
-    } else if (this.game.canStand(ent.x + sx, ent.y)) {
-      ent.x += sx
-    } else if (this.game.canStand(ent.x, ent.y + sy)) {
-      ent.y += sy
+    } else {
+      // Tenta os eixos na ordem que mais aproxima do destino.
+      const opts = Math.abs(dx) >= Math.abs(dy)
+        ? [[sx,0],[0,sy]] as const
+        : [[0,sy],[sx,0]] as const
+      let moved = false
+      for (const [mx,my] of opts) {
+        if ((mx !== 0 || my !== 0) && this.game.canStand(ent.x + mx, ent.y + my)) {
+          ent.x += mx; ent.y += my; moved = true; break
+        }
+      }
+      if (!moved) {
+        // Pequeno desvio lateral evita pressionar eternamente a mesma quina.
+        const side = step * .72
+        const px = -dy / d, py = dx / d
+        const candidates = [[px*side,py*side],[-px*side,-py*side]] as const
+        for (const [mx,my] of candidates) {
+          if (this.game.canStand(ent.x + mx, ent.y + my)) {
+            ent.x += mx; ent.y += my; break
+          }
+        }
+      }
     }
+
+    const movedX = ent.x - ox, movedY = ent.y - oy
+    if (Math.hypot(movedX, movedY) > .25) {
+      ent.dir = dir8(movedX, movedY)
+      return true
+    }
+    return false
   }
 
   ambientChat() {

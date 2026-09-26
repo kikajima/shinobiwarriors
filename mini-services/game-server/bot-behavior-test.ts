@@ -6,6 +6,12 @@ const game = new Game({} as any)
 const bots = [...game.players.values()].filter((p: any) => p.kind === 'bot' && p.bot)
 if (bots.length < 50) throw new Error(`população simulada baixa demais: ${bots.length}`)
 
+for (const b of bots) {
+  if (!b.bot.purpose?.label || !b.bot.purpose?.kind) {
+    throw new Error(`bot sem propósito explícito: ${b.name}`)
+  }
+}
+
 const primaryCounts = new Map<string, number>()
 for (const name of BOT_NAMES) {
   const p = botPersonalityForName(name)

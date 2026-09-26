@@ -416,8 +416,11 @@ export class GameEngine {
                 }
                 this.entities.set(id,e);
             } else {
+                const moveDx=x-e.bx,moveDy=y-e.by;
                 e.ax=e.bx;e.ay=e.by;e.at=e.bt;e.bx=x;e.by=y;e.bt=t;
                 if(e.at===0){e.ax=x;e.ay=y;e.at=t-50;}
+                if(Math.hypot(moveDx,moveDy)>1.5)e.dir=this.direction8(moveDx,moveDy);
+                else e.dir=dir;
                 const nf=nfMap.get(id);
                 if(nf){
                     e.lv=nf.lv;
@@ -427,7 +430,8 @@ export class GameEngine {
                     } else {e.n=nf.n||e.n;e.t=nf.t||e.t;}
                 }
             }
-            e.dir=dir;e.lastSnapLocal=localT;return e;
+            if(e.at===t-50)e.dir=dir;
+            e.lastSnapLocal=localT;return e;
         };
         for(const row of snap.p){const e=touch(row[0],row[1],row[2],row[3],snap.t);if(!e)continue;if(Number.isFinite(row[5]))e.lv=row[5];const newHp=row[4];if(newHp<e.lastHp){e.flashUntil=performance.now()+130;this.triggerAction(e.id,'hurt',280,localT);}e.lastHp=newHp;e.hp=newHp;e.hpPct=Math.max(0,Math.min(100,newHp/maxHpOf(e.lv)*100));}
         for(const row of snap.m){const e=touch(row[0],row[1],row[2],row[3],snap.t);if(!e)continue;const pct=row[4];if(pct<e.lastHp)e.flashUntil=performance.now()+130;e.lastHp=pct;e.hpPct=pct;}
